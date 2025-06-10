@@ -1,0 +1,102 @@
+# ==========================================
+# Python Bytecode / Compiled Files
+# ==========================================
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+**/*.so
+**/*.egg-info/
+dist/
+build/
+
+# ==========================================
+# Virtual Environments (ignore env or venv anywhere)
+# ==========================================
+**/env/
+**/venv/
+**/.venv/
+**/sandboxenv/
+**/sandboxenvmac/
+**/myenv/
+
+# ==========================================
+# IDE / Editor Files
+# ==========================================
+# VSCode settings folder (anywhere)
+**/.vscode/
+# PyCharm / IntelliJ
+**/.idea/
+# Editor swap / backup files
+*~
+*.swp
+*.swo
+
+# ==========================================
+# Testing / Cache
+# ==========================================
+**/.pytest_cache/
+**/.cache/
+**/.coverage
+htmlcov/
+**/.CACHEDIR.TAG
+
+# ==========================================
+# Jupyter Notebooks (ignore checkpoints)
+# ==========================================
+**/.ipynb_checkpoints/
+**/*.ipynb_checkpoints
+
+# ==========================================
+# Data / Exported Files
+# ==========================================
+# Ignore any .zip under Data/ or subfolders
+Data/**/*.zip
+# Ignore specific extracted data folder
+Data/03paulpark_calendar_data/
+# If you want to track mapping_file.json, remove the next line:
+# Data/mapping_file.json
+
+# ==========================================
+# Credentials / Secrets / Environment Files
+# ==========================================
+# Ignore any .env file anywhere in the repo
+**/.env
+
+# Ignore token.json inside UserCredentials (or any JSON there)
+UserCredentials/token.json
+UserCredentials/*.json
+UserCredientials/*
+**/UserCredentials/*
+# ==========================================
+# OS-specific Files
+# ==========================================
+# macOS
+**/.DS_Store
+**/.AppleDouble
+**/.LSOverride
+# Windows
+**/Thumbs.db
+**/ehthumbs.db
+**/Desktop.ini
+
+# ==========================================
+# Logs / Databases / Build Artifacts
+# ==========================================
+# Application logs
+**/*.log
+logs/
+# SQLite or local DB files
+**/*.sqlite3
+**/*.db
+# Node / frontend build folders (if any)
+**/node_modules/
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+dist/
+build/
+
+# ==========================================
+# Keep track of this file itself
+# ==========================================
+!.gitignore
