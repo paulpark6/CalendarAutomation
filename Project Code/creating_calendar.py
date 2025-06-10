@@ -6,6 +6,26 @@ from auth import *
 import pandas as pd
 from typing import List, Tuple
 
+def save_recent_keys(stack, filename='recent_keys.json'):
+    """
+    Save the recent keys stack to a JSON file.
+
+    This function serializes the list of (event_key, google_event_id) tuples
+    into a JSON file. It allows easy persistence and retrieval of created events.
+
+    Args:
+        stack: List of (event_key, google_event_id) tuples representing
+               events that have been created.
+        filename: The name of the JSON file where the stack will be saved.
+
+    Returns:
+        None
+    """
+    import json
+    with open(filename, 'w') as f:
+        json.dump(stack, f)
+
+
 def create_schedule(
     service,
     calendar_id: str,
