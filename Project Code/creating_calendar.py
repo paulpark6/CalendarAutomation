@@ -5,27 +5,83 @@ from llm_methods import *
 from auth import *
 import pandas as pd
 from typing import List, Tuple
+import json
+import os
 
-def save_recent_keys(stack, filename='recent_keys.json'):
+# deleting all events in the calendar session
+def delete_all_events(
+    service,
+    calendar_id: str,
+    recent_keys_stack: List[Tuple[str, str]]
+) -> List[Tuple[str, str]]:
     """
-    Save the recent keys stack to a JSON file.
-
-    This function serializes the list of (event_key, google_event_id) tuples
-    into a JSON file. It allows easy persistence and retrieval of created events.
+    Deletes all events in the specified calendar.
 
     Args:
-        stack: List of (event_key, google_event_id) tuples representing
-               events that have been created.
-        filename: The name of the JSON file where the stack will be saved.
+      service: Authenticated Google Calendar API service instance.
+      calendar_id: The ID of the calendar from which events will be deleted.
+      recent_keys_stack: List of (event_key, google_event_id) tuples.
 
     Returns:
-        None
+      An empty list, indicating all tracked events have been deleted.
     """
-    import json
-    with open(filename, 'w') as f:
-        json.dump(stack, f)
+    for key, google_event_id in recent_keys_stack:
+        try:
+            delete_event(service, calendar_id, (key,google_event_id))
+        except Exception as e:
+            print(f"Failed to delete event {key} ({google_event_id}): {e}")
+    return []
+
+# load recent keys stack from JSON file. If the file does not exist, return an empty list
+def load_recent_keys(filepath="./UserData/user_created_events.json"):
+    """
+    Loads recent keys stack from JSON file. If not found, returns empty list.
+    """
+    if not os.path.exists(filepath):
+        return []
+
+    with open(filepath, 'r') as f:
+        data = json.load(f)
+    
+    # Convert back to tuple list
+    return [tuple(item) for item in data]
 
 
+# function that saves the user's input to a jSON file
+def save_recent_keys(stack, filepath="./UserData/user_created_events.json"):
+    """
+    Saves the stack of (event_key, google_event_id) tuples to a JSON file.
+    """
+    serializable_stack = [list(t) for t in stack]
+    with open(filepath, 'w') as f:
+        json.dump(serializable_stack, f)
+
+
+# function that reads the user's input from a text file
+def load_user_input(filepath="./UserData/user_input.txt"):
+    """
+    Reads a dictionary from a plain text file and returns it as a Python dict.
+    The txt file format should look like below, Note that even with only one event,
+    the values should still be lists, so that it can be converted to a DataFrame easily.:
+    {
+        "title": ["Event Title"],
+        "event_date": ["2025-06-18"],
+        "description": ["Event Description"]
+    }
+    """
+    with open(filepath, 'r') as f:
+        content = f.read()
+
+    try:
+        data = eval(content)
+        if isinstance(data, dict):
+            return data
+        else:
+            raise ValueError("File content is not a dictionary.")
+    except Exception as e:
+        raise ValueError(f"Error parsing user input file: {e}")
+
+# functino to create a simple schedule given a DataFrame of events
 def create_schedule(
     service,
     calendar_id: str,

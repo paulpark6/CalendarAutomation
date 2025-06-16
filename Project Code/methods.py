@@ -6,50 +6,6 @@ from typing import Any, Dict, List, Optional
 import datetime
 import hashlib
 
-# Constants
-BASE_DIR    = Path(__file__).resolve().parent
-MAPPING_FILE = BASE_DIR / "Data" / "mapping_file.json"
-
-def _ensure_mapping_dir_and_file(path: Path) -> None:
-    """
-    Ensure that the mapping file and its parent directory exist.
-
-    - Creates the parent directory if it does not exist.
-    - Creates the file with an empty JSON object if the file is missing or has zero size.
-
-    Args:
-        path (Path): Full path to the mapping JSON file.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if not path.exists() or path.stat().st_size == 0:
-        path.write_text(json.dumps({}, indent=2))
-
-
-def load_recent_keys(path: Path = MAPPING_FILE) -> Dict[str, Any]:
-    """
-    Load key mappings from a JSON file, creating or initializing it if needed.
-
-    - Ensures the mapping file and its parent directory exist.
-    - Returns the parsed JSON content as a dictionary.
-    - If the file contains invalid JSON, returns an empty dictionary.
-
-    Args:
-        path (Path, optional): Path to the mapping file. Defaults to MAPPING_FILE.
-
-    Returns:
-        Dict[str, Any]: Parsed key-value mappings from the file.
-    """
-    _ensure_mapping_dir_and_file(path)
-    try:
-        return json.loads(path.read_text())
-    except json.JSONDecodeError:
-        return {}
-
-## need to crate a function that turns tuples into json file type opposite of load_recent_keys
-def save_recent_keys(d):
-    # functionw ill take in singl dictionary d and add it to the mapping_file.json
-    # given the path to the mapping file (like above function) it will append a single dictionary to this json file.
-    return None
 ## function to create a hash key
 def generate_event_key(
     title: str = "title",

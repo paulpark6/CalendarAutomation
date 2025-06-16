@@ -1,0 +1,5 @@
+{
+    "title": ["Event Title", "Event Title 2"],
+    "event_date": ["2025-06-18", "2025-06-19"],
+    "description": ["Event Description", "Event Description2"]
+}
