@@ -52,7 +52,7 @@ htmlcov/
 # Ignore any .zip under Data/ or subfolders
 Data/**/*.zip
 # Ignore specific extracted data folder
-Data/03paulpark_calendar_data/
+**/Data/*
 # If you want to track mapping_file.json, remove the next line:
 # Data/mapping_file.json
 
