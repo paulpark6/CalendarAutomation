@@ -32,19 +32,20 @@ def delete_all_events(
             print(f"Failed to delete event {key} ({google_event_id}): {e}")
     return []
 
-# load recent keys stack from JSON file. If the file does not exist, return an empty list
-def load_recent_keys(filepath="./UserData/user_created_events.json"):
+def load_recent_keys(filepath="./UserData/user_created_events.json") -> List[Tuple[str, str]]:
     """
-    Loads recent keys stack from JSON file. If not found, returns empty list.
+    Loads recent keys stack from JSON file. If file is missing or empty/corrupt, returns empty list.
     """
     if not os.path.exists(filepath):
         return []
 
-    with open(filepath, 'r') as f:
-        data = json.load(f)
-    
-    # Convert back to tuple list
-    return [tuple(item) for item in data]
+    try:
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+            return [tuple(item) for item in data]
+    except (json.JSONDecodeError, ValueError):
+        # Handles empty file or corrupt JSON
+        return []
 
 
 # function that saves the user's input to a jSON file

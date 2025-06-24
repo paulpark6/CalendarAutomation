@@ -11,7 +11,7 @@ def main():
     service = get_user_service()
     # User’s calendar ID (must already exist in Google Calendar)
     calendar_id = (
-        "09eb5168483db0b8c2c523f3b7bb29c06ef396511813a0d48377e844d6c3a9d6@group.calendar.google.com"
+        "2936619788f3a15392d5016f9593b0e5fd6c0ba25ed3a1adefc658312914d2ef@group.calendar.google.com"
     )
 
     # Reading user's input
