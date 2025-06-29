@@ -8,6 +8,35 @@ from typing import List, Tuple
 import json
 import os
 
+def get_or_create_calendar(service, calendar_name: str) -> str:
+    """
+    Gets the calendar ID for the given name. If it doesn't exist, creates it.
+
+    Args:
+        service: Authenticated Google Calendar API service instance.
+        calendar_name: Name of the calendar to find or create.
+
+    Returns:
+        calendar_id: The ID of the found or newly created calendar.
+    """
+    # 1. Check if calendar already exists
+    calendar_list = service.calendarList().list().execute()
+    for calendar_entry in calendar_list.get("items", []):
+        if calendar_entry.get("summary") == calendar_name:
+            return calendar_entry["id"]
+
+    # 2. Calendar not found — create a new one
+    calendar = {
+        'summary': calendar_name,
+        'timeZone': 'America/Toronto',
+    }
+    created_calendar = service.calendars().insert(body=calendar).execute()
+    return created_calendar["id"]
+
+
+
+
+
 # deleting all events in the calendar session
 def delete_all_events(
     service,
