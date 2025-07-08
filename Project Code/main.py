@@ -10,8 +10,8 @@ def main():
     # Authenticate and get Google Calendar service
     service = get_user_service()
     # User’s calendar ID (must already exist in Google Calendar)
-    calendar_id = (
-        "2936619788f3a15392d5016f9593b0e5fd6c0ba25ed3a1adefc658312914d2ef@group.calendar.google.com"
+    calendar_id = get_or_create_calendar(
+        service
     )
 
     # Reading user's input

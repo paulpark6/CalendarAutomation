@@ -8,17 +8,24 @@ from typing import List, Tuple
 import json
 import os
 
-def get_or_create_calendar(service, calendar_name: str) -> str:
+def get_or_create_calendar(service, filepath : str = "./UserData/calendar_id.txt") -> str:
     """
     Gets the calendar ID for the given name. If it doesn't exist, creates it.
 
     Args:
         service: Authenticated Google Calendar API service instance.
-        calendar_name: Name of the calendar to find or create.
+        filepath: the location of the user input file containing the calendar name.
 
     Returns:
-        calendar_id: The ID of the found or newly created calendar.
+        calendar_id: The ID of the found or newly created calendar. If no calendar name is found in the file,
+                      a default calendar name, Automated Calendar, is used.
     """
+    calendar_name = ""
+
+    with open(filepath, 'r') as f:
+        calendar_name = f.read()
+    if not os.path.exists(filepath) or not calendar_name:
+        calendar_name = "Automated Calendar"
     # 1. Check if calendar already exists
     calendar_list = service.calendarList().list().execute()
     for calendar_entry in calendar_list.get("items", []):
@@ -100,7 +107,7 @@ def load_user_input(filepath="./UserData/user_input.txt"):
     }
     """
     with open(filepath, 'r') as f:
-        content = f.read()
+        content = f.read().strip()
 
     try:
         data = eval(content)
