@@ -50,9 +50,10 @@ htmlcov/
 # Data / Exported Files
 # ==========================================
 # Ignore any .zip under Data/ or subfolders
-Data/**/*.zip
+UserData/**/*.zip
 # Ignore specific extracted data folder
-**/Data/*
+**/UserData/*
+UserData/
 # If you want to track mapping_file.json, remove the next line:
 # Data/mapping_file.json
 
