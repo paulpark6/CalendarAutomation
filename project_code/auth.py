@@ -12,7 +12,7 @@ load_dotenv()  # might be able to delete this line
 
 # 2) Constants
 SCOPES     = ["https://www.googleapis.com/auth/calendar"]
-TOKEN_PATH = Path("UserCredentials/token.json")
+TOKEN_PATH = Path("UserData/token.json")
 
 def get_user_service():
     creds = None

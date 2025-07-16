@@ -29,14 +29,14 @@ def main():
     # Save the stack to a JSON file
     save_recent_keys(recent_keys_stack)
     
-    # # DELETING ALL EVENTS IN THE CALENDAR SESSION
-    # recent_keys_stack = delete_all_events(
-    #     service,
-    #     calendar_id,
-    #     recent_keys_stack
-    # )
-    # # save the new stack to JSON file
-    # save_recent_keys(recent_keys_stack)
+    # DELETING ALL EVENTS IN THE CALENDAR SESSION
+    recent_keys_stack = delete_all_events(
+        service,
+        calendar_id,
+        recent_keys_stack
+    )
+    # save the new stack to JSON file
+    save_recent_keys(recent_keys_stack)
 
 
 if __name__ == "__main__":

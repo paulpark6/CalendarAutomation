@@ -8,7 +8,7 @@ from typing import List, Tuple
 import json
 import os
 
-def get_or_create_calendar(service, filepath : str = "project_code/UserData/calendar_id.txt") -> str:
+def get_or_create_calendar(service, filepath : str = "UserData/calendar_id.txt") -> str:
     """
     Gets the calendar ID for the given name. If it doesn't exist, creates it.
 
@@ -68,7 +68,7 @@ def delete_all_events(
             print(f"Failed to delete event {key} ({google_event_id}): {e}")
     return []
 
-def load_recent_keys(filepath="project_code/UserData/user_created_events.json") -> List[Tuple[str, str]]:
+def load_recent_keys(filepath="UserData/user_created_events.json") -> List[Tuple[str, str]]:
     """
     Loads recent keys stack from JSON file. If file is missing or empty/corrupt, returns empty list.
     """
@@ -85,7 +85,7 @@ def load_recent_keys(filepath="project_code/UserData/user_created_events.json") 
 
 
 # function that saves the user's input to a jSON file
-def save_recent_keys(stack, filepath="project_code/UserData/user_created_events.json"):
+def save_recent_keys(stack, filepath="UserData/user_created_events.json"):
     """
     Saves the stack of (event_key, google_event_id) tuples to a JSON file.
     """
@@ -95,7 +95,7 @@ def save_recent_keys(stack, filepath="project_code/UserData/user_created_events.
 
 
 # function that reads the user's input from a text file
-def load_user_input(filepath="project_code/UserData/user_input.txt"):
+def load_user_input(filepath="UserData/user_input.txt"):
     """
     Reads a dictionary from a plain text file and returns it as a Python dict.
     The txt file format should look like below, Note that even with only one event,
