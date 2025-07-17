@@ -163,7 +163,6 @@ def create_single_event(
     mapping = (key,  created['id'])
     return mapping
 
-
 def delete_event(
     service,
     calendar_id='primary',

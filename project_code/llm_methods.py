@@ -1,4 +1,4 @@
-import pandas as pd
+#import pandas as pd
 # # THis file should have the LLM methods
 
 #   the purpose of this file is to help user paste their schedule and it will return a pandas dataframe of the calendar version.

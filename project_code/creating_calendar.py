@@ -41,9 +41,6 @@ def get_or_create_calendar(service, filepath : str = "UserData/calendar_id.txt")
     return created_calendar["id"]
 
 
-
-
-
 # deleting all events in the calendar session
 def delete_all_events(
     service,
@@ -82,7 +79,6 @@ def load_recent_keys(filepath="UserData/user_created_events.json") -> List[Tuple
     except (json.JSONDecodeError, ValueError):
         # Handles empty file or corrupt JSON
         return []
-
 
 # function that saves the user's input to a jSON file
 def save_recent_keys(stack, filepath="UserData/user_created_events.json"):
@@ -128,7 +124,7 @@ def create_schedule(
     """
     Add events from `df_calendar` into Google Calendar, skipping any that already exist
     in `recent_keys_stack`.  Treats `recent_keys_stack` as a list of (event_key, google_id) tuples.
-
+    
     Args:
       service: Authenticated Google Calendar API service instance.
       calendar_id: The ID of the calendar where events will be added.
@@ -140,7 +136,6 @@ def create_schedule(
       The updated `recent_keys_stack`, with new (key, google_event_id) tuples appended
       for any events that did not already exist.
     """
-
     # 1) Process each row of df_calendar
     for _, row in df_calendar.iterrows():
         title       = row['title']
