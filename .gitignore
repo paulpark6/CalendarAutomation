@@ -16,6 +16,7 @@ build/
 **/venv/
 **/.venv/
 **/sandboxenv/
+**/devsandboxenv/
 **/sandboxenvmac/
 **/myenv/
 
