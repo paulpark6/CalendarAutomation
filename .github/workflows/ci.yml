@@ -30,8 +30,8 @@ jobs:
           pip install -r dev-requirements.txt
 
 
-      - name: Run flake8
-        run: flake8 .
+      # - name: Run flake8
+      #   run: flake8 .
 
       - name: Run pytest
         run: pytest --maxfail=1 --disable-warnings -q

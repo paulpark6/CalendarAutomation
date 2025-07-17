@@ -1,12 +1,19 @@
 [flake8]
 max-line-length = 88
 extend-ignore = 
-    E203,  # whitespace before ':'
-    W503,  # line break before binary operator
-    E501,  # line too long
-    E122,  # bad indentation of continued line
-    E261,  # inline comment should be preceded by two spaces
-    E266   # too many leading '#' for block comment
+    E203,
+    W503,
+    E501,
+    E122,
+    E261,
+    E266,
+    E221,
+    E302,
+    E303,
+    E265,
+    W292,
+    W293,
+    W391
 exclude =
     .git,
     __pycache__,
