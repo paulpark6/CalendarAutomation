@@ -27,10 +27,10 @@ def main():
 
     # ─── 5) Page dispatch ───────────────────────────────────────────────────────
     if page == "Home":
-        ui.show_home(service)
+        ui.show_home()
     elif page == "Bulk Upload":
-        ui.show_bulk(service)
+        ui.show_bulk()
     elif page == "Chat Parser":
-        ui.show_chat(service)
+        ui.show_chat()
     else:
-        ui.show_settings(service)
+        ui.show_settings()
