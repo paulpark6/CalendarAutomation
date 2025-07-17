@@ -1,0 +1,68 @@
+RESEARCH REPORT REQUEST
+
+1. CONTEXT (My Background and Goal):
+- Expert(s) conducting the research: [Senior Streamlit Developer • OAuth2 Security Engineer • UX/UI Designer • DevOps Engineer familiar with Docker & Streamlit Cloud • Prompt-Engineering Specialist]
+- I am researching: [Designing and building a Streamlit-based web application for scheduling events with Google OAuth authentication, multiple input modes (chat, bulk paste, file upload), optional LLM parsing, billing controls, and undoable batch operations]
+- My purpose is to: [Produce a production-ready application, complete with tested parsing logic, responsive UI, Dockerfile, and deployment pipeline]
+- I already know (briefly): [Basic Python, Streamlit fundamentals, the high-level feature list described above, some familiarity with OpenAI APIs]
+- Potential Gaps in Existing Research: [Best practices for combining Streamlit’s st.chat_input with OAuth, granular billing integration, and seamless undo functionality]
+- Actionability of Findings: [Practical—deliver a working codebase, requirements.txt, test suite, deployment guide, and extensibility roadmap]
+
+2. CORE RESEARCH QUESTION & HYPOTHESIS:
+- Primary Question: [What is the optimal architecture, code structure, and workflow to implement the specified Streamlit scheduling app—ensuring security, scalability, and user-friendly design?]
+- Hypothesis or Expected Insights: [A modular approach with separate auth, parsing, billing, and UI layers—leveraging Streamlit components, Google OAuth, and cached LLM calls—will meet all requirements while remaining maintainable]
+- Counterfactuals & Alternative Perspectives: [Could frameworks like FastAPI + React or Next.js offer superior performance or flexibility? What are the trade-offs in development speed and hosting cost?]
+
+3. SPECIFICATIONS & PARAMETERS:
+- Time Period: [Current best practices, 2023-2025]
+- Geographic Location: [N/A—global user base]
+- Industry/Sector Focus: [Educational productivity / personal scheduling tools]
+- Demographic Focus: [Students and educators needing quick calendar event creation]
+- Methodological Approach: [Step-by-step technical blueprint, code examples, unit-test stubs, and CI/CD pipeline description]
+- Ethical Considerations: [User data privacy (OAuth scopes, .env secrets), transparent billing notices, accessibility compliance]
+
+4. DESIRED REPORT OUTPUT:
+- Structure: [Structured technical blueprint with clear sections: architecture overview, component diagrams, code snippets, UI wireframes, testing strategy, deployment steps]
+- Include an Executive Summary? Yes
+- Level of Depth:  
+  - [ ] Level 1  
+  - [ ] Level 2  
+  - [x] Level 3: Comprehensive deep dive with literature review, sample code, and full critical analysis  
+- Content Elements (Check all that apply):
+  - [x] Key Trends & Developments
+  - [x] Statistical Data & Charts (e.g., performance benchmarks)
+  - [x] Case Studies/Examples (similar Streamlit apps)
+  - [x] Major Players/Organizations (Google, OpenAI, Streamlit Cloud)
+  - [x] Opposing Viewpoints/Debates
+  - [x] Expert Opinions/Predictions
+  - [x] Policy Implications (data privacy, billing regulations)
+  - [x] Controversial Findings & Their Implications
+  - [ ] Other: [Security audit checklist]
+- Visualization Preferences: [System architecture diagram, sequence diagram for parsing & billing flow, UI mock-ups]
+- Target Length (approximate): [No specific length—focus on completeness]
+- Citation Style: [None or inline links]
+
+5. OUTPUT FORMAT PREFERENCES:
+- Preferred Writing Format:  
+  - [ ] Blog Post  
+  - [ ] Academic Paper  
+  - [ ] McKinsey style report  
+  - [x] Detailed Project Plan including the WBS  
+  - [ ] Other: [Add API reference appendix]  
+- Preferred Writing Perspective:  
+  - [ ] First-person  
+  - [x] Third-person (neutral, formal tone)  
+  - [ ] Narrative Style  
+
+6. SOURCE PREFERENCES:
+- Prioritization of Sources:  
+  - Primary (Highest Priority): [Official Streamlit docs, Google Identity docs, OpenAI API refs, peer-reviewed security papers]  
+  - Secondary (Medium Priority): [Industry white papers, reputable tech blogs, OSS project READMEs]  
+  - Tertiary (Lowest Priority, Only if No Alternatives): [Well-researched tutorials, conference talks]  
+- Avoid: [Unverified opinions, outdated StackOverflow answers, sources lacking code examples]
+
+7. CRITICAL ANALYSIS PARAMETERS:
+- Strength of Evidence Scale: [Rate claims 1-5 based on recency, credibility, and reproducibility]
+- Consideration of Limitations: [Yes—explicitly address Streamlit performance limits, OAuth quota caps, costs of LLM calls]
+- Paradigmatic Lens: [Human-centered design and privacy-by-design principles]
+- Interdisciplinary Connections: [Link to human-computer interaction, cloud cost optimization, and secure software engineering]
