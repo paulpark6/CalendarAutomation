@@ -9,6 +9,7 @@ from project_code.creating_calendar import get_or_create_calendar
 from project_code.creating_calendar import load_recent_keys, load_user_input, create_schedule, save_recent_keys
 import pandas as pd
 from project_code.auth import get_user_service
+import streamlit_app.calendar_utils as calendar_utils
 
 # this function is used to get the service object from the session state
 def get_service():
@@ -22,7 +23,7 @@ def get_service():
     """
     return st.session_state["service"]
 
-def show_home():
+def show_home(service, calendar_id):
     """
     Renders the Home page of the app, welcoming the user and displaying their calendar events.
 
@@ -36,6 +37,8 @@ def show_home():
     st.header("🏠 Home")
     user = st.session_state.user
     st.write(f"Welcome, **{user['name']}**!")
+    # Fetch user email and store in session state
+    st.dataframe(calendar_utils.show_calendar(service, calendar_id))
     # TODO: Implement event listing using project_code logic
     st.info("Event listing coming soon.")
 

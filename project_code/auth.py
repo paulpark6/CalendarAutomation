@@ -45,3 +45,16 @@ def get_user_service():
 
     # Build and return service
     return build("calendar", "v3", credentials=creds)
+
+def get_authenticated_email(service):
+    """
+    Prints and returns the email address of the authenticated user.
+    """
+    try:
+        calendar_list = service.calendarList().list().execute()
+        primary_calendar = next(
+            calendar for calendar in calendar_list['items'] if calendar.get('primary', False)
+        )
+        return primary_calendar['id']
+    except Exception as e:
+        return None

@@ -58,8 +58,8 @@ def create_single_event(
     event_time: str = "",
     end_date: str = "",
     timezone: str = 'America/Toronto',
-    notifications: list = None,
-    invitees: list = None,
+    notifications: list = [],
+    invitees: list = [],
     key: str = "",
 ) -> tuple:
     """
@@ -195,4 +195,5 @@ def delete_event(
     key, event_id = mapping
     service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
     return mapping
+
 
