@@ -8,19 +8,122 @@ import hashlib
 import datetime
 from .llm_methods import *
 from .auth import *
+from numpy import array
 
-def save_user_events_from_dataframe(email, event_records):
+def save_events(email: str, event_records):
     """
-    Accepts either a DataFrame or a list of dicts.
+    Save one or more event records for a user to their personal created events JSON file.
+
+    This function accepts any of the following as event_records:
+        - A pandas DataFrame with columns matching the event record fields.
+        - A list of dictionaries, where each dictionary represents an event.
+        - A single dictionary representing one event.
+
+    It will save each event for the specified user, ensuring that
+    duplicate events (by unique_key) are not created. If an event with the same unique_key already
+    exists, it will be replaced with the new one.
+
+    Args:
+        email (str): The user's email address, used to determine the file path.
+        event_records (Union[pd.DataFrame, List[dict], dict]): The events to be saved.
+
+    Example of event_records as a list of dicts:
+        event_records = [
+            {
+                "user_email": "user@example.com",
+                "unique_key": "abc123",
+                "google_calendar_id": "gcal1",
+                "service": "test_service",
+                "title": "Test Event 1",
+                "event_date": "2024-07-01",
+                "description": "First event",
+                "calendar_id": "cal1",
+                "event_time": "10:00",
+                "end_date": "2024-07-01",
+                "timezone": "America/Toronto",
+                "notifications": [],
+                "invitees": []
+            },
+            {
+                "user_email": "user@example.com",
+                "unique_key": "def456",
+                "google_calendar_id": "gcal2",
+                "service": "test_service",
+                "title": "Test Event 2",
+                "event_date": "2024-07-02",
+                "description": "Second event",
+                "calendar_id": "cal1",
+                "event_time": "14:00",
+                "end_date": "2024-07-02",
+                "timezone": "America/Toronto",
+                "notifications": [],
+                "invitees": []
+            }
+        ]
+
+    Example of event_records as a single dict:
+        event_records = {
+            "user_email": "user@example.com",
+            "unique_key": "abc123",
+            "google_calendar_id": "gcal1",
+            "service": "test_service",
+            "title": "Test Event 1",
+            "event_date": "2024-07-01",
+            "description": "First event",
+            "calendar_id": "cal1",
+            "event_time": "10:00",
+            "end_date": "2024-07-01",
+            "timezone": "America/Toronto",
+            "notifications": [],
+            "invitees": []
+        }
+
+    Side Effects:
+        - Calls save_event for each event record, which writes to 'UserData/{email}_created_events.json'.
+        - Ensures no duplicate events by unique_key.
+
+    Returns:
+        None
     """
+    # Define all required keys for an event record
+    REQUIRED_EVENT_KEYS = [
+        "user_email",
+        "unique_key",
+        "google_calendar_id",
+        "service",
+        "title",
+        "event_date",
+        "description",
+        "calendar_id",
+        "event_time",
+        "end_date",
+        "timezone",
+        "notifications",
+        "invitees"
+    ]
+
+    # Convert DataFrame to list of dicts if needed
     if hasattr(event_records, 'to_dict'):  # DataFrame
         records = event_records.to_dict(orient="records")
+    elif isinstance(event_records, dict):
+        # Single event dict
+        records = [event_records]
     else:
+        # Assume it's already a list of dicts
         records = event_records
-    for event_record in records:
-        save_user_event(email, event_record)
 
-def save_user_event(email, event_record):
+    for event_record in records:
+        # Ensure all required keys are present in the event_record
+        for key in REQUIRED_EVENT_KEYS:
+            if key not in event_record:
+                # Use empty string for most, but [] for notifications/invitees
+                if key in ("notifications", "invitees"):
+                    event_record[key] = []
+                else:
+                    event_record[key] = ""
+        save_event(email, event_record)
+
+def save_event(email, event_record):
     """
     Save a single event record for a user to their personal created events JSON file.
 
@@ -72,32 +175,52 @@ def save_user_event(email, event_record):
     with open(path, "w") as f:
         json.dump(events, f, indent=2)
 
-def load_user_events(email):
+def load_events(email):
     """
-    Load all event records for a user from their personal created events JSON file and return as a pandas DataFrame.
+    Loads all event records for a user from their personal created events JSON file and returns them as a pandas DataFrame.
 
     Args:
-        email (str): The user's email address, used to determine the file path.
+        email (str): The user's email address, which is used to determine the file path for their saved events.
 
     Returns:
-        pd.DataFrame: DataFrame of event records (empty if the file does not exist).
+        pd.DataFrame: A DataFrame containing all event records for the user. 
+            - If the file 'UserData/{email}_created_events.json' does not exist, or if the file exists but contains no data, 
+              an empty DataFrame with the expected columns is returned. 
+            - If the file exists and contains event data, a DataFrame with one row per event is returned, with columns:
+              ["user_email", "unique_key", "google_calendar_id", "service", "title", "event_date", "description", "calendar_id", "event_time", "end_date", "timezone", "notifications", "invitees"].
+            - If the file exists but is corrupted or does not contain a list of event records, an empty DataFrame with the expected columns is returned.
     """
+    columns = [
+        "user_email", "unique_key", "google_calendar_id", "service", "title", "event_date",
+        "description", "calendar_id", "event_time", "end_date", "timezone", "notifications", "invitees"
+    ]
     path = f"UserData/{email}_created_events.json"
     if not os.path.exists(path):
-        # Return an empty DataFrame with expected columns
-        columns = [
-            "user_email", "unique_key", "google_calendar_id", "service", "title", "event_date",
-            "description", "calendar_id", "event_time", "end_date", "timezone", "notifications", "invitees"
-        ]
-        return pd.DataFrame({col: [] for col in columns})
-    with open(path, "r") as f:
-        events = json.load(f)
-        # Defensive: ensure events is a list of dicts
-        if not isinstance(events, list):
-            return pd.DataFrame()
-        return pd.DataFrame(events)
+        # Return an empty DataFrame with expected columns (0 rows, 13 columns)
+        return pd.DataFrame(columns=array(columns))
+    try:
+        with open(path, "r") as f:
+            content = f.read()
+            if not content.strip():
+                # File is empty, return empty DataFrame with columns
+                return pd.DataFrame(columns=array(columns))
+            events = json.loads(content)
+    except Exception:
+        # File is corrupted or unreadable, return empty DataFrame with columns
+        return pd.DataFrame(columns=array(columns))
+    # Defensive: ensure events is a list of dicts
+    if not isinstance(events, list):
+        return pd.DataFrame(columns=array(columns))
+    df = pd.DataFrame(events)
+    # Ensure all expected columns exist, even if empty
+    for col in columns:
+        if col not in df.columns:
+            df[col] = []
+    # Reorder columns to match the expected order
+    df = df[columns]
+    return df
 
-def get_or_create_calendar(service, filepath : str = "UserData/calendar_id.txt") -> str:
+def set_calendar_id(service, filepath : str = "UserData/calendar_id.txt") -> str:
     """
     Gets the calendar ID for the given name. If it doesn't exist, creates it with a default name Automated Calendar.
 
