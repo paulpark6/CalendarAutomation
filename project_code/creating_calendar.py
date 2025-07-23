@@ -32,7 +32,7 @@ def save_events(email: str, event_records):
             {
                 "user_email": "user@example.com",
                 "unique_key": "abc123",
-                "google_calendar_id": "gcal1",
+                "calendar_name": "gcal1",
                 "service": "test_service",
                 "title": "Test Event 1",
                 "event_date": "2024-07-01",
@@ -47,7 +47,7 @@ def save_events(email: str, event_records):
             {
                 "user_email": "user@example.com",
                 "unique_key": "def456",
-                "google_calendar_id": "gcal2",
+                "calendar_name": "gcal2",
                 "service": "test_service",
                 "title": "Test Event 2",
                 "event_date": "2024-07-02",
@@ -65,7 +65,7 @@ def save_events(email: str, event_records):
         event_records = {
             "user_email": "user@example.com",
             "unique_key": "abc123",
-            "google_calendar_id": "gcal1",
+            "calendar_name": "gcal1",
             "service": "test_service",
             "title": "Test Event 1",
             "event_date": "2024-07-01",
@@ -89,7 +89,7 @@ def save_events(email: str, event_records):
     REQUIRED_EVENT_KEYS = [
         "user_email",
         "unique_key",
-        "google_calendar_id",
+        "calendar_name",
         "service",
         "title",
         "event_date",
@@ -133,7 +133,7 @@ def save_event(email, event_record):
         event_record = {
                     "user_email": email,                     # str, the user's email address 
                     "unique_key": unique_key,                # str, from generate_event_key (hash)
-                    "google_calendar_id": google_event_id,   # str, from Google API
+                    "calendar_name": google_event_id,       # str, from Google API
                     "service": str(service),                 # optional, usually not serializable; store service info if needed
                     "title": title,                          # str
                     "event_date": event_date,                # str
@@ -187,11 +187,11 @@ def load_events(email):
             - If the file 'UserData/{email}_created_events.json' does not exist, or if the file exists but contains no data, 
               an empty DataFrame with the expected columns is returned. 
             - If the file exists and contains event data, a DataFrame with one row per event is returned, with columns:
-              ["user_email", "unique_key", "google_calendar_id", "service", "title", "event_date", "description", "calendar_id", "event_time", "end_date", "timezone", "notifications", "invitees"].
+              ["user_email", "unique_key", "calendar_name", "service", "title", "event_date", "description", "calendar_id", "event_time", "end_date", "timezone", "notifications", "invitees"].
             - If the file exists but is corrupted or does not contain a list of event records, an empty DataFrame with the expected columns is returned.
     """
     columns = [
-        "user_email", "unique_key", "google_calendar_id", "service", "title", "event_date",
+        "user_email", "unique_key", "calendar_name", "service", "title", "event_date",
         "description", "calendar_id", "event_time", "end_date", "timezone", "notifications", "invitees"
     ]
     path = f"UserData/{email}_created_events.json"
@@ -220,38 +220,6 @@ def load_events(email):
     df = df[columns]
     return df
 
-def set_calendar_id(service, filepath : str = "UserData/calendar_id.txt") -> str:
-    """
-    Gets the calendar ID for the given name. If it doesn't exist, creates it with a default name Automated Calendar.
-
-    Args:
-        service: Authenticated Google Calendar API service instance.
-        filepath: the location of the user input file containing the calendar name.
-
-    Returns:
-        calendar_id: The ID of the found or newly created calendar. If no calendar name is found in the file,
-                      a default calendar name, Automated Calendar, is used.
-    """
-    calendar_name = ""
-
-    with open(filepath, 'r') as f:
-        calendar_name = f.read()
-    if not os.path.exists(filepath) or not calendar_name:
-        calendar_name = "Automated Calendar"
-    # 1. Check if calendar already exists
-    calendar_list = service.calendarList().list().execute()
-    for calendar_entry in calendar_list.get("items", []):
-        if calendar_entry.get("summary") == calendar_name:
-            return calendar_entry["id"]
-
-    # 2. Calendar not found — create a new one
-    calendar = {
-        'summary': calendar_name,
-        'timeZone': 'America/Toronto',
-    }
-    created_calendar = service.calendars().insert(body=calendar).execute()
-    return created_calendar["id"]
-
 
 # deleting all events in the calendar session
 def delete_all_events(
@@ -272,63 +240,106 @@ def delete_all_events(
         return []
     calendar_id = str(calendar_id or "")
     for event in recent_events:
-        google_event_id = event.get("google_calendar_id")
+        google_event_id = event.get("calendar_name")
         google_event_id = str(google_event_id or "")
         if not google_event_id:
             continue
         try:
             delete_event(service, calendar_id, google_event_id)
         except Exception as e:
-            print(f"Failed to delete event {event.get('unique_key', '')} ({event.get('google_calendar_id', '')}): {e}")
+            print(f"Failed to delete event {event.get('unique_key', '')} ({event.get('calendar_name', '')}): {e}")
     return []
 
-def load_recent_keys(filepath="UserData/user_created_events.json") -> List[Tuple[str, str]]:
-    """
-    Loads recent keys stack from JSON file. If file is missing or empty/corrupt, returns empty list.
-    """
-    if not os.path.exists(filepath):
-        return []
-
-    try:
-        with open(filepath, 'r') as f:
-            data = json.load(f)
-            return [tuple(item) for item in data]
-    except (json.JSONDecodeError, ValueError):
-        # Handles empty file or corrupt JSON
-        return []
-
-# function that saves the user's input to a jSON file
-def save_recent_keys(stack, filepath="UserData/user_created_events.json"):
-    """
-    Saves the stack of (event_key, google_event_id) tuples to a JSON file.
-    """
-    serializable_stack = [list(t) for t in stack]
-    with open(filepath, 'w') as f:
-        json.dump(serializable_stack, f)
-
 # function that reads the user's input from a text file
-def load_user_input(filepath="UserData/user_input.txt"):
+def read_inputs(filepath="UserData/user_input.txt", service=None):
     """
-    Reads a dictionary from a plain text file and returns it as a Python dict.
-    The txt file format should look like below, Note that even with only one event,
-    the values should still be lists, so that it can be converted to a DataFrame easily.:
-    {
-        "title": ["Event Title"],
-        "event_date": ["2025-06-18"],
-        "description": ["Event Description"]
-    }
+    Reads the user's input from the specified file path, validates and enriches each event, and returns a list of event dictionaries ready for saving or further processing.
+
+    The function performs the following:
+      1. Reads the event list from the txt file (must be a list of dicts).
+      2. Ensures that for each event:
+         - 'user_email', 'calendar_name', 'service', and 'title' are present and not empty (raises ValueError if missing/empty).
+         - 'calendar_id' is set using set_calendar_id(service, calendar_name).
+         - 'unique_key' is generated using generate_event_key with the appropriate fields.
+      3. Returns the validated and enriched list of event dicts.
+
+    Args:
+        filepath (str): Path to the user input file.
+        service: Authenticated Google Calendar API service instance (required for calendar_id).
+
+    Returns:
+        list: The validated and enriched list of event dictionaries.
+
+    Raises:
+        FileNotFoundError: If the input file does not exist.
+        ValueError: If the file content cannot be parsed, or if required fields are missing/empty.
     """
+    import json
+    from project_code.methods import generate_event_key
+    required_fields = ["user_email", "calendar_name", "service", "title"]
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"User input file not found at: {filepath}. This indicates a problem with the setup.")
     with open(filepath, 'r') as f:
         content = f.read().strip()
-
     try:
         data = eval(content)
-        if isinstance(data, dict):
-            return data
-        else:
-            raise ValueError("File content is not a dictionary.")
     except Exception as e:
         raise ValueError(f"Error parsing user input file: {e}")
+    if not isinstance(data, list):
+        raise ValueError("Input file must contain a list of event dictionaries.")
+    enriched_events = []
+    for event in data:
+        # Check required fields are present and not empty
+        for field in required_fields:
+            if field not in event or not str(event[field]).strip():
+                raise ValueError(f"Event is missing required field or value: '{field}'")
+        # Set calendar_id using set_calendar_id
+        calendar_name = event["calendar_name"]
+        calendar_id = set_calendar_id(service, calendar_name) if service else ""
+        event["calendar_id"] = calendar_id
+        # Generate unique_key using generate_event_key
+        event["unique_key"] = generate_event_key(
+            title=event.get("title", ""),
+            description=event.get("description", ""),
+            calendar_id=calendar_id,
+            event_date=event.get("event_date", ""),
+            event_time=event.get("event_time", ""),
+            end_date=event.get("end_date", ""),
+            timezone=event.get("timezone", "America/Toronto"),
+            notifications=event.get("notifications", []),
+            invitees=event.get("invitees", [])
+        )
+        enriched_events.append(event)
+    return enriched_events
+
+def set_calendar_id(service, calendar_name: str = "Automated Calendar", timeZone: str = "America/Toronto") -> str:
+    """
+    Gets the calendar ID for the given calendar name. If it doesn't exist, creates it with the provided name,
+    or uses the default name "Automated Calendar" if no name is given.
+
+    Args:
+        service: Authenticated Google Calendar API service instance.
+        calendar_name (str): The name of the calendar to look up or create. If empty, uses "Automated Calendar".
+        timeZone (str): The time zone of the calendar. If empty, uses "America/Toronto".
+
+    Returns:
+        str: The ID of the found or newly created calendar.
+    """
+    if timeZone == "":
+        timeZone = "America/Toronto"
+    # 1. Check if calendar already exists
+    calendar_list = service.calendarList().list().execute()
+    for calendar_entry in calendar_list.get("items", []):
+        if calendar_entry.get("summary") == calendar_name:
+            return calendar_entry["id"]
+
+    # 2. Calendar not found — create a new one
+    calendar = {
+        'summary': calendar_name,
+        'timeZone': timeZone,
+    }
+    created_calendar = service.calendars().insert(body=calendar).execute()
+    return created_calendar["id"]
 
 # functino to create a simple schedule given a DataFrame of events
 def create_schedule(
@@ -501,11 +512,11 @@ def create_single_event(
         'attendees': [{'email': e} for e in invitees]
     }
     created = service.events().insert(calendarId=calendar_id, body=event).execute()
-    google_calendar_id = created['id']
+    calendar_name = created['id']
     event_record = {
         "user_email": user_email or "",
         "unique_key": unique_key,
-        "google_calendar_id": google_calendar_id,
+        "calendar_name": calendar_name,
         "service": str(service),
         "title": title,
         "event_date": event_date,
