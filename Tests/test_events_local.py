@@ -5,17 +5,44 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from project_code.creating_calendar import save_events, load_events
-import pandas as pd
-TEST_EMAIL = "test@test.com"
+from project_code.auth import *
 
+import pandas as pd
+service = get_user_service()
+email = get_authenticated_email(service)
 # example usage of saving events
-save_events(TEST_EMAIL, 
+data = save_events(email, service,
 [    {
-            "user_email": TEST_EMAIL,
-            "unique_key": "abc12w3",
-            "google_calendar_id": "gcal1",
-            "service": "test_service",
+            "user_email": email,
+            "title": "Test Event",
+            "description": "This is a test event",
+            "event_date": "2025-01-01",
+            "event_time": "10:00",
+            "end_date": "2025-01-01",
+            "timezone": "America/Toronto"
+    },
+    {
+            "user_email": email,
+            "title": "Test Event3",
+            "description": "This is a test event",
+            "event_date": "2025-01-01",
+            "event_time": "10:00",
+            "end_date": "2025-01-01",
+            "timezone": "America/Toronto"
     }])
 
+data = save_events(email, service,
+[    {
+            "user_email": email,
+            "title": "Test Event2",
+            "description": "This is a test event",
+            "event_date": "2025-01-01",
+            "event_time": "10:00",
+            "end_date": "2025-01-01",
+            "timezone": "America/Toronto"
+    }])
+
+print(data)
+
 # example usage of loading saved events
-print(load_events(TEST_EMAIL).head())
+print(load_events(email).head())

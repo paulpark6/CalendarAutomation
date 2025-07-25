@@ -10,6 +10,56 @@ from project_code.creating_calendar import load_recent_keys, load_user_input, cr
 import pandas as pd
 from project_code.auth import get_user_service
 import streamlit_app.calendar_utils as calendar_utils
+import streamlit as st
+from datetime import datetime, timedelta, timezone
+from project_code.calendar_methods import create_event
+from project_code.auth import get_default_calendar_timezone
+
+def show_create_event(service):
+    st.header("📅 Create a Calendar event")
+
+    # --- basic input widgets ---
+    title       = st.text_input("Title", "")
+    description = st.text_area("Description", "")
+    date        = st.date_input("Date", datetime.now().date())
+    start_time  = st.time_input("Start time", datetime.now().time().replace(second=0, microsecond=0))
+    end_time    = st.time_input("End time", (datetime.now() + timedelta(hours=1)).time().replace(second=0, microsecond=0))
+    tz_default  = get_default_calendar_timezone(service)           # helper from timezone_helper.py
+    timezone_id = st.text_input("Time-zone", tz_default)
+
+    if_exists   = st.selectbox("If event already exists", ("skip", "update", "error"))
+    notify      = st.selectbox("Send updates to guests", ("none", "externalOnly", "all"))
+
+    # --- JIT build RFC-3339 strings ---
+    start_iso = datetime.combine(date, start_time, tzinfo=timezone.utc).isoformat()
+    end_iso   = datetime.combine(date, end_time,   tzinfo=timezone.utc).isoformat()
+
+    if st.button("Create / Update"):
+        try:
+            event, status = create_event(
+                service,
+                calendar_id="primary",
+                email=st.session_state["user"]["email"],
+                title=title or "Untitled event",
+                description=description,
+                start_iso=start_iso,
+                end_iso=end_iso,
+                timezone_id=timezone_id,
+                send_updates=notify,
+                if_exists=if_exists,
+            )
+
+            link = event.get("htmlLink", "#")
+            if status == "inserted":
+                st.success(f"✅ Event created — [open]({link})")
+            elif status == "duplicate_updated":
+                st.success(f"♻️ Existing event updated — [open]({link})")
+            else:
+                st.info(f"ℹ️ Event already existed — [open]({link})")
+        except ValueError as err:
+            st.warning(str(err))
+        except Exception as err:
+            st.error(f"Google Calendar error: {err}")
 
 # this function is used to get the service object from the session state
 def get_service():

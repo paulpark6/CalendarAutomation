@@ -7,6 +7,9 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
 # 1) Load env
+# This line loads environment variables from a .env file into the process's environment,
+# making them accessible via os.getenv(). It's useful for keeping sensitive information
+# like API keys or client secrets out of your codebase.
 load_dotenv()  # might be able to delete this line
 
 # 2) Constants
@@ -58,3 +61,17 @@ def get_authenticated_email(service):
         return primary_calendar['id']
     except Exception as e:
         return None
+
+def get_default_calendar_timezone(service, calendar_id="primary"):
+    """
+    Returns the timeZone of the specified calendar (default: primary calendar).
+    
+    Args:
+        service: Authenticated Google Calendar API service instance.
+        calendar_id (str): The calendar ID to check (default is 'primary').
+    
+    Returns:
+        str: The timeZone string (e.g., 'America/Toronto').
+    """
+    calendar = service.calendars().get(calendarId=calendar_id).execute()
+    return calendar.get("timeZone", "UTC")  # Fallback to UTC if not found

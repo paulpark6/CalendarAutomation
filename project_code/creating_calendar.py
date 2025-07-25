@@ -9,8 +9,10 @@ import datetime
 from .llm_methods import *
 from .auth import *
 from numpy import array
+from datetime import datetime
 
-def save_events(email: str, event_records):
+
+def save_events(email: str, service, event_records):
     """
     Save one or more event records for a user to their personal created events JSON file.
 
@@ -27,57 +29,6 @@ def save_events(email: str, event_records):
         email (str): The user's email address, used to determine the file path.
         event_records (Union[pd.DataFrame, List[dict], dict]): The events to be saved.
 
-    Example of event_records as a list of dicts:
-        event_records = [
-            {
-                "user_email": "user@example.com",
-                "unique_key": "abc123",
-                "calendar_name": "gcal1",
-                "service": "test_service",
-                "title": "Test Event 1",
-                "event_date": "2024-07-01",
-                "description": "First event",
-                "calendar_id": "cal1",
-                "event_time": "10:00",
-                "end_date": "2024-07-01",
-                "timezone": "America/Toronto",
-                "notifications": [],
-                "invitees": []
-            },
-            {
-                "user_email": "user@example.com",
-                "unique_key": "def456",
-                "calendar_name": "gcal2",
-                "service": "test_service",
-                "title": "Test Event 2",
-                "event_date": "2024-07-02",
-                "description": "Second event",
-                "calendar_id": "cal1",
-                "event_time": "14:00",
-                "end_date": "2024-07-02",
-                "timezone": "America/Toronto",
-                "notifications": [],
-                "invitees": []
-            }
-        ]
-
-    Example of event_records as a single dict:
-        event_records = {
-            "user_email": "user@example.com",
-            "unique_key": "abc123",
-            "calendar_name": "gcal1",
-            "service": "test_service",
-            "title": "Test Event 1",
-            "event_date": "2024-07-01",
-            "description": "First event",
-            "calendar_id": "cal1",
-            "event_time": "10:00",
-            "end_date": "2024-07-01",
-            "timezone": "America/Toronto",
-            "notifications": [],
-            "invitees": []
-        }
-
     Side Effects:
         - Calls save_event for each event record, which writes to 'UserData/{email}_created_events.json'.
         - Ensures no duplicate events by unique_key.
@@ -85,23 +36,6 @@ def save_events(email: str, event_records):
     Returns:
         None
     """
-    # Define all required keys for an event record
-    REQUIRED_EVENT_KEYS = [
-        "user_email",
-        "unique_key",
-        "calendar_name",
-        "service",
-        "title",
-        "event_date",
-        "description",
-        "calendar_id",
-        "event_time",
-        "end_date",
-        "timezone",
-        "notifications",
-        "invitees"
-    ]
-
     # Convert DataFrame to list of dicts if needed
     if hasattr(event_records, 'to_dict'):  # DataFrame
         records = event_records.to_dict(orient="records")
@@ -112,45 +46,113 @@ def save_events(email: str, event_records):
         # Assume it's already a list of dicts
         records = event_records
 
+    saved_events = []
     for event_record in records:
-        # Ensure all required keys are present in the event_record
-        for key in REQUIRED_EVENT_KEYS:
-            if key not in event_record:
-                # Use empty string for most, but [] for notifications/invitees
-                if key in ("notifications", "invitees"):
-                    event_record[key] = []
-                else:
-                    event_record[key] = ""
-        save_event(email, event_record)
+        saved_event = save_event(email, service, event_record)
+        if saved_event is not None:
+            saved_events.append(saved_event)
 
-def save_event(email, event_record):
+    # No need to deduplicate here, as save_event() already handles duplicates
+    df = pd.DataFrame(saved_events)
+    return df
+
+def clean_event_record(event_record, service):
+    """
+    Cleans and standardizes an event record by ensuring all required fields are present, filling in default values where necessary, and generating a unique key for the event.
+
+    Parameters:
+        event_record (dict): 
+            A dictionary representing a single event. It may be incomplete or missing some required fields. 
+            Expected keys include (but are not limited to): 
+                - "unique_key"
+                - "calendar_name"
+                - "title"
+                - "event_date"
+                - "description"
+                - "calendar_id"
+                - "event_time"
+                - "end_date"
+                - "timezone"
+                - "notifications"
+                - "invitees"
+        service: 
+            The Google Calendar API service object, used to look up or create calendar IDs if needed.
+
+    Purpose:
+        This function ensures that the event record contains all necessary fields for saving or pushing to Google Calendar. 
+        If any required field is missing or set to None, it fills in a sensible default (e.g., default timezone, calendar name, or notification settings).
+        It also generates a unique key for the event based on its content, which is used to identify and deduplicate events.
+
+    Returns:
+        dict: 
+            A cleaned and fully populated event record dictionary, ready for saving or further processing.
+    """
+
+    # Define all required keys for an event record
+    REQUIRED_EVENT_KEYS = [
+        "unique_key", "calendar_name", "title", "event_date",
+        "description", "calendar_id", "event_time", "end_date", "timezone", "notifications", "invitees"
+    ]
+
+    # Make a copy to avoid mutating the input
+    event_record = dict(event_record)
+
+    for key in REQUIRED_EVENT_KEYS:
+        if key not in event_record or event_record[key] is None:
+            if key == "timezone":
+                event_record['timezone'] = "America/Toronto"
+            elif key == "calendar_name":
+                event_record['calendar_name'] = "Automated Calendar"
+            elif key == "calendar_id":
+                event_record['calendar_id'] = set_calendar_id(
+                    service, "Automated Calendar", event_record.get("timezone", "America/Toronto")
+                )
+            elif key == "title":
+                event_record['title'] = "Enter Title Here"
+            elif key == "event_date":
+                event_record['event_date'] = datetime.now().strftime("%y-%m-%d")
+            elif key == "notifications":
+                event_record['notifications'] = [
+                    {'method': 'popup',  'minutes': 7  * 24 * 60},   # 7 days before
+                    {'method': 'email',  'minutes': 1  * 24 * 60},   # 1 day before
+                    {'method': 'popup',  'minutes': 1  * 24 * 60},   # 1 day before
+                    {'method': 'popup',  'minutes': 2  * 24 * 60},   # 2 days before
+                    {'method': 'popup',  'minutes': 3  * 24 * 60}    # 3 days before
+                ]
+            elif key == "invitees":
+                event_record['invitees'] = []
+            else:
+                event_record[key] = ""
+
+    # Generate unique_key after all fields are filled in
+    event_record["unique_key"] = generate_event_key(
+        title=event_record["title"],
+        description=event_record["description"],
+        calendar_id=event_record["calendar_id"],
+        event_date=event_record["event_date"],
+        event_time=event_record["event_time"],
+        end_date=event_record["end_date"],
+        timezone=event_record["timezone"],
+        notifications=event_record["notifications"],
+        invitees=event_record["invitees"]
+    )
+    return event_record
+
+def save_event(email, service, event_record):
     """
     Save a single event record for a user to their personal created events JSON file.
 
+    This function uses clean_event_record to ensure all required fields are present and filled.
+    It guarantees that no duplicate events (by unique_key) are stored for the user.
+    If an event with the same unique_key already exists, it is replaced with the new one.
+
     Args:
         email (str): The user's email address, used to determine the file path.
-        event_record (Any): The event data to be saved (typically a dictionary).
-        event_record = {
-                    "user_email": email,                     # str, the user's email address 
-                    "unique_key": unique_key,                # str, from generate_event_key (hash)
-                    "calendar_name": google_event_id,       # str, from Google API
-                    "service": str(service),                 # optional, usually not serializable; store service info if needed
-                    "title": title,                          # str
-                    "event_date": event_date,                # str
-                    "description": description,              # str
-                    "calendar_id": calendar_id,              # str
-                    "event_time": event_time or "",          # str or ""
-                    "end_date": end_date or "",              # str or ""
-                    "timezone": timezone,                    # str
-                    "notifications": notifications or "",    # str or list or ""
-                    "invitees": invitees or "",              # str or list or ""
-                }
+        service: The authenticated Google Calendar API service instance (used for calendar_id assignment if needed).
+        event_record (dict): The event data to be saved.
 
-    Side Effects:
-        - Reads from and writes to 'UserData/{email}_created_events.json'.
-        - Appends the new event to the existing list of events for the user.
-    Ensures no duplicate events by unique_key. If the file does not exist, creates it with the new event.
-    Does not return anything.
+    Returns:
+        dict: The cleaned and saved event record.
     """
     path = f"UserData/{email}_created_events.json"
     # Load existing events if file exists, else start with empty list
@@ -163,17 +165,17 @@ def save_event(email, event_record):
     else:
         events = []
 
-    # Remove any existing event with the same unique_key
-    unique_key = event_record.get("unique_key")
-    if unique_key is not None:
-        events = [e for e in events if e.get("unique_key") != unique_key]
+    # Clean and fill the event record
+    cleaned_event = clean_event_record(event_record, service)
 
-    # Append the new event
-    events.append(event_record)
+    # Remove any existing event with the same unique_key before appending the new/updated event
+    events = [e for e in events if e.get("unique_key") != cleaned_event["unique_key"]]
+    events.append(cleaned_event)
 
     # Write back to JSON
     with open(path, "w") as f:
         json.dump(events, f, indent=2)
+    return cleaned_event  # Return the single event
 
 def load_events(email):
     """
@@ -187,11 +189,11 @@ def load_events(email):
             - If the file 'UserData/{email}_created_events.json' does not exist, or if the file exists but contains no data, 
               an empty DataFrame with the expected columns is returned. 
             - If the file exists and contains event data, a DataFrame with one row per event is returned, with columns:
-              ["user_email", "unique_key", "calendar_name", "service", "title", "event_date", "description", "calendar_id", "event_time", "end_date", "timezone", "notifications", "invitees"].
+              ["user_email", "unique_key", "calendar_name", "title", "event_date", "description", "calendar_id", "event_time", "end_date", "timezone", "notifications", "invitees"].
             - If the file exists but is corrupted or does not contain a list of event records, an empty DataFrame with the expected columns is returned.
     """
     columns = [
-        "user_email", "unique_key", "calendar_name", "service", "title", "event_date",
+        "user_email", "unique_key", "calendar_name", "title", "event_date",
         "description", "calendar_id", "event_time", "end_date", "timezone", "notifications", "invitees"
     ]
     path = f"UserData/{email}_created_events.json"
@@ -220,103 +222,19 @@ def load_events(email):
     df = df[columns]
     return df
 
-
-# deleting all events in the calendar session
-def delete_all_events(
-    service,
-    calendar_id: Optional[str],
-    recent_events: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-    """
-    Deletes all events in the specified calendar using the new event_record structure.
-    Args:
-      service: Authenticated Google Calendar API service instance.
-      calendar_id: The ID of the calendar from which events will be deleted.
-      recent_events: List of event_record dicts.
-    Returns:
-      An empty list, indicating all tracked events have been deleted.
-    """
-    if service is None:
-        return []
-    calendar_id = str(calendar_id or "")
-    for event in recent_events:
-        google_event_id = event.get("calendar_name")
-        google_event_id = str(google_event_id or "")
-        if not google_event_id:
-            continue
-        try:
-            delete_event(service, calendar_id, google_event_id)
-        except Exception as e:
-            print(f"Failed to delete event {event.get('unique_key', '')} ({event.get('calendar_name', '')}): {e}")
-    return []
-
 # function that reads the user's input from a text file
-def read_inputs(filepath="UserData/user_input.txt", service=None):
+def read_inputs(input, service=None):
     """
-    Reads the user's input from the specified file path, validates and enriches each event, and returns a list of event dictionaries ready for saving or further processing.
-
-    The function performs the following:
-      1. Reads the event list from the txt file (must be a list of dicts).
-      2. Ensures that for each event:
-         - 'user_email', 'calendar_name', 'service', and 'title' are present and not empty (raises ValueError if missing/empty).
-         - 'calendar_id' is set using set_calendar_id(service, calendar_name).
-         - 'unique_key' is generated using generate_event_key with the appropriate fields.
-      3. Returns the validated and enriched list of event dicts.
-
-    Args:
-        filepath (str): Path to the user input file.
-        service: Authenticated Google Calendar API service instance (required for calendar_id).
-
-    Returns:
-        list: The validated and enriched list of event dictionaries.
-
-    Raises:
-        FileNotFoundError: If the input file does not exist.
-        ValueError: If the file content cannot be parsed, or if required fields are missing/empty.
+    This function should read read the input.
+    The input is the output given from function load_events().
+    Then this function will upload every events from the dataframe to google calendar.
     """
-    import json
-    from project_code.methods import generate_event_key
-    required_fields = ["user_email", "calendar_name", "service", "title"]
-    if not os.path.exists(filepath):
-        raise FileNotFoundError(f"User input file not found at: {filepath}. This indicates a problem with the setup.")
-    with open(filepath, 'r') as f:
-        content = f.read().strip()
-    try:
-        data = eval(content)
-    except Exception as e:
-        raise ValueError(f"Error parsing user input file: {e}")
-    if not isinstance(data, list):
-        raise ValueError("Input file must contain a list of event dictionaries.")
-    enriched_events = []
-    for event in data:
-        # Check required fields are present and not empty
-        for field in required_fields:
-            if field not in event or not str(event[field]).strip():
-                raise ValueError(f"Event is missing required field or value: '{field}'")
-        # Set calendar_id using set_calendar_id
-        calendar_name = event["calendar_name"]
-        calendar_id = set_calendar_id(service, calendar_name) if service else ""
-        event["calendar_id"] = calendar_id
-        # Generate unique_key using generate_event_key
-        event["unique_key"] = generate_event_key(
-            title=event.get("title", ""),
-            description=event.get("description", ""),
-            calendar_id=calendar_id,
-            event_date=event.get("event_date", ""),
-            event_time=event.get("event_time", ""),
-            end_date=event.get("end_date", ""),
-            timezone=event.get("timezone", "America/Toronto"),
-            notifications=event.get("notifications", []),
-            invitees=event.get("invitees", [])
-        )
-        enriched_events.append(event)
-    return enriched_events
 
 def set_calendar_id(service, calendar_name: str = "Automated Calendar", timeZone: str = "America/Toronto") -> str:
     """
     Gets the calendar ID for the given calendar name. If it doesn't exist, creates it with the provided name,
     or uses the default name "Automated Calendar" if no name is given.
-
+    This function will be used by another function to generate the calendar_id.
     Args:
         service: Authenticated Google Calendar API service instance.
         calendar_name (str): The name of the calendar to look up or create. If empty, uses "Automated Calendar".
@@ -327,6 +245,8 @@ def set_calendar_id(service, calendar_name: str = "Automated Calendar", timeZone
     """
     if timeZone == "":
         timeZone = "America/Toronto"
+    if calendar_name == "":
+        calendar_name = "Automated Calendar"
     # 1. Check if calendar already exists
     calendar_list = service.calendarList().list().execute()
     for calendar_entry in calendar_list.get("items", []):
@@ -341,65 +261,6 @@ def set_calendar_id(service, calendar_name: str = "Automated Calendar", timeZone
     created_calendar = service.calendars().insert(body=calendar).execute()
     return created_calendar["id"]
 
-# functino to create a simple schedule given a DataFrame of events
-def create_schedule(
-    service,
-    calendar_id: str,
-    df_calendar,
-    recent_events: List[Dict[str, Any]],
-    user_email: str = "",
-    event_time: str = "",
-    end_date: str = "",
-    timezone: str = "America/Toronto",
-    notifications: Optional[List[Dict[str, Any]]] = None,
-    invitees: Optional[List[str]] = None
-    ) -> List[Dict[str, Any]]:
-    """
-    Add events from `df_calendar` into Google Calendar, skipping any that already exist
-    in `recent_events`. Uses event_record dicts for tracking.
-    """
-    if notifications is None:
-        notifications = []
-    if invitees is None:
-        invitees = []
-    user_email = user_email or ""
-    existing_keys = {event['unique_key'] for event in recent_events}
-    for _, row in df_calendar.iterrows():
-        title       = row.get('title', "") or ""
-        description = row.get('description', "") or ""
-        event_date  = row.get('event_date', "") or ""
-        unique_key = generate_event_key(
-            title=title,
-            description=description,
-            calendar_id=calendar_id,
-            event_date=event_date,
-            event_time=event_time or "",
-            end_date=end_date or "",
-            timezone=timezone,
-            notifications=notifications,
-            invitees=invitees
-        )
-        if unique_key in existing_keys:
-            continue
-        event_record = create_single_event(
-            service,
-            calendar_id=calendar_id,
-            title=title,
-            description=description,
-            event_date=event_date,
-            event_time=event_time or "",
-            end_date=end_date or "",
-            timezone=timezone,
-            notifications=notifications,
-            invitees=invitees,
-            key=unique_key,
-            user_email=user_email
-        )
-        recent_events.append(event_record)
-        existing_keys.add(unique_key)
-    return recent_events
-
-# --- Event Key Generation ---
 def generate_event_key(
     title: str = "title",
     description: str = "description",
@@ -410,7 +271,7 @@ def generate_event_key(
     timezone: str = "America/Toronto",
     notifications: Optional[List[Dict[str, Any]]] = None,
     invitees: Optional[List[str]] = None
-) -> str:
+    ) -> str:
     """
     Generate a deterministic unique key for an event based only on its input parameters.
     """
@@ -435,65 +296,62 @@ def generate_event_key(
     key_hash = hashlib.sha1(key_string.encode('utf-8')).hexdigest()
     return key_hash
 
-# --- Single Event Creation ---
-def create_single_event(
-    service,
-    calendar_id: str = 'primary',
-    title: str = 'title',
-    description: str = 'description',
-    event_date: str = "",
-    event_time: str = "",
-    end_date: str = "",
-    timezone: str = 'America/Toronto',
-    notifications: Optional[List[Dict[str, Any]]] = None,
-    invitees: Optional[List[str]] = None,
-    key: str = "",
-    user_email: str = ""
-) -> Dict[str, Any]:
-    """
-    Create a single Google Calendar event and return an event_record dict.
-    """
-    today = datetime.date.today().strftime('%Y-%m-%d')
-    event_date = event_date or today
-    end_date = end_date or event_date
-    title = title or ""
-    description = description or ""
-    calendar_id = calendar_id or ""
-    if notifications is None:
-        notifications = []
-    if invitees is None:
-        invitees = []
-    if not notifications:
-        if event_time:
-            overrides = [
-                {'method': 'email',  'minutes': 24 * 60},
-                {'method': 'popup',  'minutes': 7  * 24 * 60},
-                {'method': 'popup',  'minutes': 2  * 60},
-                {'method': 'popup',  'minutes': 24 * 60},
-                {'method': 'popup',  'minutes': 2  * 24 * 60}
-            ]
-        else:
-            overrides = [
-                {'method': 'popup',  'minutes': 7  * 24 * 60},
-                {'method': 'email',  'minutes': 1  * 24 * 60},
-                {'method': 'popup',  'minutes': 1  * 24 * 60},
-                {'method': 'popup',  'minutes': 2  * 24 * 60},
-                {'method': 'popup',  'minutes': 3  * 24 * 60},
-            ]
-    else:
-        overrides = notifications
-    # Generate unique_key if not provided
-    unique_key = key or generate_event_key(
-        title=title,
-        description=description,
-        calendar_id=calendar_id,
-        event_date=event_date,
-        event_time=event_time,
-        end_date=end_date,
-        timezone=timezone,
-        notifications=notifications,
-        invitees=invitees
+def push_all_local_events_to_google(service, email):
+    df = load_events(email)
+    for _, event in df.iterrows():
+        create_single_event(
+            service,
+            calendar_id=event["calendar_id"],
+            title=event["title"],
+            description=event["description"],
+            event_date=event["event_date"],
+            event_time=event["event_time"],
+            end_date=event["end_date"],
+            timezone=event["timezone"],
+            notifications=event["notifications"],
+            invitees=event["invitees"],
+            user_email=event.get("user_email", "")
+        )
+
+def add_event_to_google_calendar(service, event_record):
+    return create_single_event(
+        service,
+        calendar_id=event_record["calendar_id"],
+        title=event_record["title"],
+        description=event_record["description"],
+        event_date=event_record["event_date"],
+        event_time=event_record["event_time"],
+        end_date=event_record["end_date"],
+        timezone=event_record["timezone"],
+        notifications=event_record["notifications"],
+        invitees=event_record["invitees"],
+        user_email=event_record.get("user_email", "")
     )
+
+def create_single_event(service, event_record: dict) -> dict:
+    """
+    Create a single Google Calendar event from an event_record dictionary and return the updated event_record dict.
+    This function uses clean_event_record to ensure all required fields are present and filled.
+    """
+    # Clean and fill the event record first
+    event_record = clean_event_record(event_record, service)
+
+    # Extract fields from the cleaned event_record
+    title = event_record['title']
+    description = event_record['description']
+    event_date = event_record['event_date']
+    end_date = event_record['end_date']
+    calendar_id = event_record['calendar_id']
+    event_time = event_record['event_time']
+    timezone = event_record['timezone']
+    notifications = event_record['notifications']
+    invitees = event_record['invitees']
+    user_email = event_record.get('user_email', '')
+    unique_key = event_record['unique_key']
+
+    # Set up reminders
+    overrides = notifications
+
     event = {
         'summary': title,
         'description': description,
@@ -513,40 +371,8 @@ def create_single_event(
     }
     created = service.events().insert(calendarId=calendar_id, body=event).execute()
     calendar_name = created['id']
-    event_record = {
-        "user_email": user_email or "",
-        "unique_key": unique_key,
-        "calendar_name": calendar_name,
-        "service": str(service),
-        "title": title,
-        "event_date": event_date,
-        "description": description,
-        "calendar_id": calendar_id,
-        "event_time": event_time or "",
-        "end_date": end_date or "",
-        "timezone": timezone,
-        "notifications": overrides,
-        "invitees": invitees,
-    }
-    return event_record
+    # Update the event_record with the Google Calendar event id
+    event_record['calendar_name'] = calendar_name
+    return event_record 
 
-# --- Delete Event ---
-def delete_event(
-    service,
-    calendar_id: Optional[str],
-    google_event_id: Optional[str]
-) -> str:
-    """
-    Delete an event from Google Calendar using its event ID.
-    """
-    if service is None:
-        return ""
-    calendar_id = str(calendar_id or "")
-    google_event_id = str(google_event_id or "")
-    if not calendar_id or not google_event_id:
-        return ""
-    service.events().delete(calendarId=calendar_id, eventId=google_event_id).execute()
-    return google_event_id
-
-
-
+    
