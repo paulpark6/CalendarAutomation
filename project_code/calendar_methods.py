@@ -17,7 +17,7 @@ import hashlib
 import json
 import os
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Tuple
 from googleapiclient.errors import HttpError
 
 
