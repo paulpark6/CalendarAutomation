@@ -261,6 +261,12 @@ def set_calendar_id(service, calendar_name: str = "Automated Calendar", timeZone
     created_calendar = service.calendars().insert(body=calendar).execute()
     return created_calendar["id"]
 
+def get_or_create_calendar(service, calendar_name: str = "Automated Calendar", timeZone: str = "America/Toronto") -> str:
+    """
+    Gets the calendar ID for the given calendar name. If it doesn't exist, creates it.
+    """
+    return set_calendar_id(service, calendar_name, timeZone)
+
 def generate_event_key(
     title: str = "title",
     description: str = "description",

@@ -12,7 +12,7 @@ Key features
 """
 
 from __future__ import annotations
-from project_code.auth import get_authenticated_email, get_user_default_timezone
+from project_code.auth import get_authenticated_email, get_default_calendar_timezone
 import hashlib
 import json
 import os
@@ -302,7 +302,7 @@ def create_calendar_events(
         Forwarded to :pyfunc:`create_event`.
     default_timezone : str | None
         If provided, used when an entry omits ``timezone_id``.  If *None*, falls
-        back to ``get_user_default_timezone(service)``.
+        back to ``get_default_calendar_timezone(service)``.
 
     Returns
     -------
@@ -319,7 +319,7 @@ def create_calendar_events(
     [(<event>, "inserted"), (<event>, "duplicate_skipped")]
     """
 
-    tz_fallback = default_timezone or get_user_default_timezone(service)
+    tz_fallback = default_timezone or get_default_calendar_timezone(service)
     results: List[Tuple[Dict[str, Any], str]] = []
 
     for item in events:
@@ -486,7 +486,7 @@ def delete_event_by_fields(
     event_date: Optional[str] = None,
     send_updates: str = "none",
 ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
-    """Delete using human‑readable fields and return what happened.
+    """Delete using human-readable fields and return what happened.
 
     * 0 matches → `[]`
     * 1 match   → event dict (deleted)

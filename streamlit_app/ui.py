@@ -1,167 +1,526 @@
-# UI rendering functions for the Streamlit CalendarProject app.
+# streamlit_app/ui.py
+import json
+import datetime as dt
+from typing import List, Dict, Any, Optional
 
-# This module defines the main page components (Home, Bulk Upload, Chat Parser, Settings),
-# using Streamlit to display and interact with Google Calendar data. All functions access
-# user/session state via Streamlit's st.session_state.
-
-import streamlit as st
-from project_code.creating_calendar import get_or_create_calendar
-from project_code.creating_calendar import load_recent_keys, load_user_input, create_schedule, save_recent_keys
 import pandas as pd
-from project_code.auth import get_user_service
-import streamlit_app.calendar_utils as calendar_utils
 import streamlit as st
-from datetime import datetime, timedelta, timezone
-from project_code.calendar_methods import create_event
-from project_code.auth import get_default_calendar_timezone
 
-def show_create_event(service):
-    st.header("📅 Create a Calendar event")
+# External helpers you said exist in project_code/*
+from project_code import calendar_methods as cal
+from project_code import creating_calendar as create_mod
 
-    # --- basic input widgets ---
-    title       = st.text_input("Title", "")
-    description = st.text_area("Description", "")
-    date        = st.date_input("Date", datetime.now().date())
-    start_time  = st.time_input("Start time", datetime.now().time().replace(second=0, microsecond=0))
-    end_time    = st.time_input("End time", (datetime.now() + timedelta(hours=1)).time().replace(second=0, microsecond=0))
-    tz_default  = get_default_calendar_timezone(service)           # helper from timezone_helper.py
-    timezone_id = st.text_input("Time-zone", tz_default)
+# ──────────────────────────────────────────────────────────────────────────────
+# Session keys we’ll use:
+#   st.session_state["user_email"]: str
+#   st.session_state["parsed_events_df"]: pd.DataFrame
+#   st.session_state["undo_stack"]: List[List[str]]  # batches of created Google event IDs
+#   st.session_state["usage_stats"]: Dict[str, Any]  # {"events_added": int, "last_action": str}
+#   st.session_state["active_calendar"]: str
+#   st.session_state["llm_enabled"]: bool
+#   st.session_state["billing_ok"]: bool
 
-    if_exists   = st.selectbox("If event already exists", ("skip", "update", "error"))
-    notify      = st.selectbox("Send updates to guests", ("none", "externalOnly", "all"))
+from google.auth.transport.requests import AuthorizedSession
 
-    # --- JIT build RFC-3339 strings ---
-    start_iso = datetime.combine(date, start_time, tzinfo=timezone.utc).isoformat()
-    end_iso   = datetime.combine(date, end_time,   tzinfo=timezone.utc).isoformat()
+def _authed_session_from_service(service):
+    """Build a Requests-based authorized session (bypasses httplib2)."""
+    creds = st.session_state.get("credentials")
+    if creds is None:
+        creds = getattr(getattr(service, "_http", None), "credentials", None)
+    if creds is None:
+        raise RuntimeError("Google credentials not found in session.")
+    return AuthorizedSession(creds)
 
-    if st.button("Create / Update"):
-        try:
-            event, status = create_event(
-                service,
-                calendar_id="primary",
-                email=st.session_state["user"]["email"],
-                title=title or "Untitled event",
-                description=description,
-                start_iso=start_iso,
-                end_iso=end_iso,
-                timezone_id=timezone_id,
-                send_updates=notify,
-                if_exists=if_exists,
+def _list_calendars_safe(service) -> list[dict]:
+    """[{id, summary}] using requests transport (stable on py3.13)."""
+    sess = _authed_session_from_service(service)
+    url = "https://www.googleapis.com/calendar/v3/users/me/calendarList"
+    out, token = [], None
+    while True:
+        params = {"maxResults": 250}
+        if token: params["pageToken"] = token
+        r = sess.get(url, params=params, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        out += [{"id": it["id"], "summary": it.get("summary", it["id"])}
+                for it in data.get("items", [])]
+        token = data.get("nextPageToken")
+        if not token: break
+    return out
+
+def _create_calendar_safe(service, name: str) -> str:
+    """Create a calendar with `summary=name`; return its ID."""
+    sess = _authed_session_from_service(service)
+    r = sess.post("https://www.googleapis.com/calendar/v3/calendars",
+                  json={"summary": name}, timeout=30)
+    r.raise_for_status()
+    return r.json()["id"]
+
+# ---- cache + labeling ----
+def _refresh_calendars(service):
+    cals = _list_calendars_safe(service)
+    st.session_state["calendars"] = cals
+    # if active disappears, pick the first
+    if cals and not any(c["id"] == st.session_state.get("active_calendar") for c in cals):
+        st.session_state["active_calendar"] = cals[0]["id"]
+    return cals
+
+def _get_calendars_cached(service):
+    return st.session_state.get("calendars") or _refresh_calendars(service)
+
+def _calendar_label(cal: dict) -> str:
+    return f"{cal.get('summary', cal['id'])} · {cal['id']}"
+
+def _calendar_name_for_id(cal_id: str) -> str:
+    for c in st.session_state.get("calendars", []):
+        if c["id"] == cal_id:
+            return c.get("summary", cal_id)
+    return cal_id
+
+
+def _refresh_calendars(service):
+    """Fetch calendars and cache them in session_state['calendars']."""
+    cals = _list_calendars_safe(service)  # your requests-based function
+    st.session_state["calendars"] = cals
+    # If active calendar vanished, reset to first/primary
+    if cals and not any(c["id"] == st.session_state.get("active_calendar") for c in cals):
+        st.session_state["active_calendar"] = cals[0]["id"]
+    return cals
+
+def _get_calendars_cached(service):
+    """Return cached calendars if present, otherwise load."""
+    if "calendars" not in st.session_state:
+        return _refresh_calendars(service)
+    return st.session_state["calendars"]
+
+def _calendar_label(cal):
+    """Return 'name · id' label."""
+    return f"{cal.get('summary', cal['id'])} · {cal['id']}"
+
+def _calendar_name_for_id(cal_id: str) -> str:
+    cals = st.session_state.get("calendars", [])
+    for c in cals:
+        if c["id"] == cal_id:
+            return c.get("summary", cal_id)
+    return cal_id
+
+
+def _authed_session_from_service(service):
+    # Try to grab creds stored at login (recommended)
+    creds = st.session_state.get("credentials")
+    if creds is None:
+        # Fallback: grab creds off the service's HTTP adapter
+        creds = getattr(getattr(service, "_http", None), "credentials", None)
+    if creds is None:
+        raise RuntimeError("Google credentials not found in session.")
+    return AuthorizedSession(creds)
+
+
+def _create_calendar_safe(service, name: str) -> str:
+    sess = _authed_session_from_service(service)
+    r = sess.post("https://www.googleapis.com/calendar/v3/calendars",
+                  json={"summary": name}, timeout=30)
+    r.raise_for_status()
+    return r.json()["id"]
+
+
+def _init_session_defaults():
+    st.session_state.setdefault("undo_stack", [])
+    st.session_state.setdefault("usage_stats", {"events_added": 0, "last_action": "—"})
+    st.session_state.setdefault("parsed_events_df", pd.DataFrame())
+    st.session_state.setdefault("active_calendar", "primary")
+    st.session_state.setdefault("llm_enabled", False)
+    st.session_state.setdefault("billing_ok", False)
+
+def _success(msg: str):
+    st.session_state["usage_stats"]["last_action"] = msg
+    st.success(msg)
+
+def _error(msg: str):
+    st.session_state["usage_stats"]["last_action"] = f"Error: {msg}"
+    st.error(msg)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Login page
+
+def show_login_page(on_login=None, error_message=None):
+    st.title("🔐 Please sign in with Google")
+    if error_message:
+        st.error(error_message)
+    if st.button("Continue with Google", type="primary"):
+        if on_login:
+            on_login()
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Home
+
+def _list_calendars_safe(service):
+    sess = _authed_session_from_service(service)
+    url = "https://www.googleapis.com/calendar/v3/users/me/calendarList"
+    out, token = [], None
+    while True:
+        params = {"maxResults": 250}
+        if token:
+            params["pageToken"] = token
+        r = sess.get(url, params=params, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        out += [{"id": it["id"], "summary": it.get("summary", it["id"])} for it in data.get("items", [])]
+        token = data.get("nextPageToken")
+        if not token:
+            break
+    return out
+
+def _fetch_upcoming_events(service, calendar_id: str, max_count: int = 50) -> List[Dict[str, Any]]:
+    now_iso = dt.datetime.utcnow().isoformat() + "Z"
+    resp = service.events().list(
+        calendarId=calendar_id,
+        timeMin=now_iso,
+        singleEvents=True,
+        orderBy="startTime",
+        maxResults=max_count,
+        fields="items(id,summary,start,end,description,location)"
+    ).execute()
+    return resp.get("items", [])
+
+def _events_to_df(items: List[Dict[str, Any]]) -> pd.DataFrame:
+    rows = []
+    for it in items:
+        start = it.get("start", {})
+        end = it.get("end", {})
+        rows.append({
+            "event_id": it.get("id"),
+            "title": it.get("summary"),
+            "start": start.get("dateTime") or start.get("date"),
+            "end": end.get("dateTime") or end.get("date"),
+            "location": it.get("location"),
+            "description": it.get("description"),
+        })
+    return pd.DataFrame(rows)
+
+def show_home(service):
+    _init_session_defaults()
+
+    user = st.session_state.get("user_email") or "Unknown user"
+    st.title("📅 Calendar Automation")
+    st.caption("Google Calendar • paste / upload • optional LLM parsing • undo batches")
+
+    with st.container(border=True):
+        c1, c2 = st.columns([2, 1])
+        with c1:
+            user = st.session_state.get("user_email") or "Unknown user"
+            active_id = st.session_state.get("active_calendar", "primary")
+            active_name = _calendar_name_for_id(active_id)
+
+            st.markdown(
+                f"**Signed in as:** `{user}`  \n"
+                f"**Active calendar:** `{active_name}` · `{active_id}`"
             )
+            st.markdown("### How it works")
+            st.markdown(
+                "- Choose an input mode: structured paste, `.txt` upload, or natural language (LLM).\n"
+                "- Preview and edit events in a table before creating.\n"
+                "- Create events in a single batch.\n"
+                "- Undo the last batch if needed."
+            )
+        with c2:
+            stats = st.session_state["usage_stats"]
+            st.metric("Events added (this session)", stats["events_added"])
+            st.caption(f"Last action: {stats['last_action']}")
 
-            link = event.get("htmlLink", "#")
-            if status == "inserted":
-                st.success(f"✅ Event created — [open]({link})")
-            elif status == "duplicate_updated":
-                st.success(f"♻️ Existing event updated — [open]({link})")
-            else:
-                st.info(f"ℹ️ Event already existed — [open]({link})")
-        except ValueError as err:
-            st.warning(str(err))
-        except Exception as err:
-            st.error(f"Google Calendar error: {err}")
-
-# this function is used to get the service object from the session state
-def get_service():
-    """
-    Retrieves the Google Calendar API service object from Streamlit's session state.
-
-    Returns:
-        service: The Google Calendar API service object stored in st.session_state["service"].
-    Side Effects:
-        Reads from st.session_state.
-    """
-    return st.session_state["service"]
-
-def show_home(service, calendar_id):
-    """
-    Renders the Home page of the app, welcoming the user and displaying their calendar events.
-
-    Parameters:
-        None (uses session state for user and service).
-    Side Effects:
-        Reads 'user' from st.session_state.
-        Calls list_events(user) to fetch events.
-        Displays a dataframe of events in the UI.
-    """
-    st.header("🏠 Home")
-    user = st.session_state.user
-    st.write(f"Welcome, **{user['name']}**!")
-    # Fetch user email and store in session state
-    st.dataframe(calendar_utils.show_calendar(service, calendar_id))
-    # TODO: Implement event listing using project_code logic
-    st.info("Event listing coming soon.")
-
-
-def show_bulk():
-    """
-    Renders the Bulk Upload page, allowing users to paste multiple events, parse them, preview, and create them in their calendar.
-
-    Parameters:
-        None (uses session state for user and service).
-    Side Effects:
-        Reads/writes to st.session_state.
-        Displays text area, dataframes, and success messages in the UI.
-        Calls parse_bulk and create_event for event creation.
-    """
-    st.header("📋 Bulk Upload")
-    option = st.radio("Choose input method:", ["Paste dictionary", "Upload .txt file"])
-    proceed = False
-    if option == "Paste dictionary":
-        text = st.text_area("Paste your event dictionary here (Python dict or JSON):")
-        if st.button("Save and Create Events"):
-            # Save the pasted text to user_input.txt
-            with open("UserData/user_input.txt", "w") as f:
-                f.write(text)
-            st.success("Input saved to user_input.txt!")
-            proceed = True
-    elif option == "Upload .txt file":
-        file = st.file_uploader("Upload a .txt file", type=["txt"])
-        if file and st.button("Parse file and Create Events"):
-            with open("UserData/user_input.txt", "wb") as f:
-                f.write(file.read())
-            st.success("File saved to user_input.txt!")
-            proceed = True
-    if proceed:
-        # Use project_code logic to load, parse, and create events
-        recent_keys_stack = load_recent_keys()
-        service = st.session_state["service"]
-        calendar_id = get_or_create_calendar(service)
-        user_response = load_user_input()  # returns dict
-        df_calendar = pd.DataFrame(user_response)
-        recent_keys_stack = create_schedule(
-            service,
-            calendar_id,
-            df_calendar,
-            recent_keys_stack
+    st.divider()
+    st.subheader("Your calendars")
+    calendars = _get_calendars_cached(service)
+    if calendars:
+        ids = [c["id"] for c in calendars]
+        labels = [_calendar_label(c) for c in calendars]
+        try:
+            idx = ids.index(st.session_state["active_calendar"])
+        except ValueError:
+            idx = 0
+        choice = st.selectbox(
+            "Select a calendar",
+            options=list(range(len(ids))),
+            format_func=lambda i: labels[i],
+            index=idx
         )
-        save_recent_keys(recent_keys_stack)
-        st.success("Events created and saved!")
-        st.dataframe(df_calendar)
+        st.session_state["active_calendar"] = ids[choice]
+    else:
+        st.info("No calendars found. Use Event Builder to create one.")
 
-def show_chat():
-    """
-    Renders the Chat Parser page, allowing users to describe events in natural language and add them to their calendar via LLM parsing.
+    with st.expander("Create a new calendar"):
+        new_name = st.text_input("Calendar name", placeholder="My Automated Calendar")
+        if st.button("Create / ensure", key="ensure_calendar_btn"):
+            try:
+                # ensure: reuse by name if already exists
+                existing = _get_calendars_cached(service)
+                match = next((c for c in existing if c.get("summary") == new_name), None)
+                if match:
+                    cal_id = match["id"]
+                else:
+                    cal_id = _create_calendar_safe(service, new_name)
 
-    Parameters:
-        None (uses session state for user and service).
-    Side Effects:
-        Reads/writes to st.session_state.
-        Displays chat input, JSON, and success messages in the UI.
-        Calls parse_chat and create_event for event creation.
-    """
-    st.header("💬 Chat Parser")
-    st.info("Chat-based event parsing coming soon.")
+                _refresh_calendars(service)                 # <-- refresh dropdown cache
+                st.session_state["active_calendar"] = cal_id
 
-def show_settings():
-    """
-    Renders the Settings page, where users can configure app preferences and view/export session logs.
+                _success(f"Calendar ready: `{new_name}` · `{cal_id}`")  # nice 'Last action'
+            except Exception as e:
+                _error(f"Failed to create/ensure calendar: {e}")
+    st.subheader("Upcoming events")
+    try:
+        items = _fetch_upcoming_events(service, st.session_state["active_calendar"], max_count=50)
+        df = _events_to_df(items)
+        if df.empty:
+            st.caption("No upcoming events.")
+        else:
+            st.dataframe(df, use_container_width=True, height=360)
+            st.caption("Tip: delete-on-hover will be added later.")
+    except Exception as e:
+        _error(f"Failed to load events: {e}")
 
-    Parameters:
-        None (uses session state for user and service).
-    Side Effects:
-        Displays settings UI components in the Streamlit app.
-    """
-    service = get_service()
-    st.header("⚙️ Settings")
-    st.write("…your settings UI here…")
+    st.divider()
+    if st.button("🧱 Open Event Builder", type="primary"):
+        st.session_state["nav"] = "Event Builder"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Event Builder
+
+def _coerce_root_to_list(obj: Any) -> List[Dict[str, Any]]:
+    if isinstance(obj, list):
+        return obj
+    if isinstance(obj, dict):
+        return [obj]
+    raise ValueError("JSON must be a list of dicts or a single dict.")
+
+def _load_json_into_preview(raw_text: str):
+    """Lenient ingest: accept list or single dict; on any JSON error, just show an error banner."""
+    if not raw_text or not raw_text.strip():
+        _error("Paste JSON first.")
+        return
+    try:
+        data = json.loads(raw_text)
+        records = _coerce_root_to_list(data)
+        df = pd.DataFrame(records)
+        if df.empty:
+            _error("No records found in JSON.")
+            return
+        st.session_state["parsed_events_df"] = df
+        _success(f"Loaded {len(df)} record(s) into preview.")
+    except Exception as e:
+        _error(f"Invalid JSON: {e}")
+
+def _create_events_batch(service, df: pd.DataFrame):
+    """Create events by calling your backend. Uses calendar_methods.create_calendar_events if available."""
+    if df is None or df.empty:
+        _error("Load records first.")
+        return
+
+    email = st.session_state.get("user_email") or "unknown@example.com"
+    target_cal = st.session_state.get("active_calendar") or "primary"
+
+    rows = df.to_dict(orient="records")
+
+    created_ids: List[str] = []
+
+    # Prefer bulk path in calendar_methods
+    try:
+        results = cal.create_calendar_events(
+            service,
+            email=email,
+            events=rows,
+            calendar_id=target_cal,
+            if_exists="skip",
+            send_updates="none"
+        )
+        # results expected: List[(event_dict, status)]
+        for ev, _status in results:
+            ev_id = ev.get("id")
+            if ev_id:
+                created_ids.append(ev_id)
+    except Exception as e_bulk:
+        # Fallback to creating_calendar one-by-one if needed
+        try:
+            for r in rows:
+                # map common keys if present; creating_calendar.create_single_event signature
+                created = create_mod.create_single_event(
+                    service,
+                    calendar_id=r.get("google_calendar_id") or r.get("calendar_id") or target_cal,
+                    title=r.get("title") or "Untitled",
+                    description=r.get("description") or "",
+                    event_date=r.get("event_date") or "",
+                    event_time=r.get("event_time") or "",
+                    end_date=r.get("end_date") or r.get("event_date") or "",
+                    timezone=r.get("timezone") or "UTC",
+                    notifications=r.get("notifications") or [],
+                    invitees=r.get("invitees") or [],
+                )
+                ev_id = created.get("id") or created.get("event_id") or created.get("calendar_name")
+                if ev_id:
+                    created_ids.append(ev_id)
+        except Exception as e_single:
+            _error(f"Failed to create events: {e_bulk or e_single}")
+            return
+
+    if not created_ids:
+        _error("No events were created.")
+        return
+
+    st.session_state["undo_stack"].append(created_ids)
+    st.session_state["usage_stats"]["events_added"] += len(created_ids)
+    _success(f"Created {len(created_ids)} event(s) in `{target_cal}`.")
+
+def _undo_last_batch(service):
+    if not st.session_state["undo_stack"]:
+        _error("Nothing to undo.")
+        return
+    last_batch = st.session_state["undo_stack"].pop()
+    # You mentioned you'll wire a delete-all helper; calling through calendar_methods if present
+    try:
+        # If you have a batched delete, call it here; else loop:
+        for eid in last_batch:
+            service.events().delete(calendarId=st.session_state.get("active_calendar","primary"),
+                                    eventId=eid, sendUpdates="none").execute()
+        _success(f"Deleted {len(last_batch)} event(s).")
+    except Exception as e:
+        _error(f"Undo failed: {e}")
+
+def show_event_builder(service):
+    _init_session_defaults()
+    st.title("🧱 Event Builder")
+    st.caption("Paste, upload, or describe your events. Preview, edit, and create in one place.")
+
+    # Calendar target + ensure
+    with st.container(border=True):
+        calendars = _get_calendars_cached(service)
+        ids = [c["id"] for c in calendars] or ["primary"]
+        labels = [_calendar_label(c) for c in calendars] or ["primary"]
+
+        try:
+            idx = ids.index(st.session_state["active_calendar"])
+        except ValueError:
+            idx = 0
+
+        choice = st.selectbox(
+            "Target calendar",
+            options=list(range(len(ids))),
+            format_func=lambda i: labels[i],
+            index=idx,
+            key="evb_cal_select",  # <-- make unique to Event Builder
+        )
+        st.session_state["active_calendar"] = ids[choice]
+
+        new_name = st.text_input(
+            "Create new calendar (optional)",
+            placeholder="My Automated Calendar",
+            key="evb_new_cal_name",  # <-- unique
+        )
+        if st.button("Create / ensure calendar", key="evb_create_cal_btn"):  # <-- unique
+            try:
+                existing = _get_calendars_cached(service)
+                match = next((c for c in existing if c.get("summary") == new_name), None)
+                if match:
+                    cal_id = match["id"]
+                else:
+                    cal_id = _create_calendar_safe(service, new_name)
+
+                _refresh_calendars(service)                 # refresh dropdown cache
+                st.session_state["active_calendar"] = cal_id
+                _success(f"Calendar ready: `{new_name}` · `{cal_id}`")
+            except Exception as e:
+                _error(f"Failed: {e}")
+
+        st.toggle("Enable LLM parsing (billing applies)", key="evb_llm_enabled")  # <-- unique
+
+    tab1, tab2, tab3 = st.tabs(["Structured paste", "Upload .txt", "Natural Language (LLM)"])
+
+    with tab1:
+        st.markdown("**Paste event records** as JSON (list of dicts or a single dict).")
+        example = [{
+            "user_email": st.session_state.get("user_email") or "user@example.com",
+            "service": "google_calendar_api",
+            "google_calendar_id": st.session_state.get("active_calendar","primary"),
+            "title": "Sample Event",
+            "event_date": dt.date.today().isoformat(),
+            "description": "Optional",
+            "calendar_id": "primary",
+            "event_time": "10:00",
+            "end_date": dt.date.today().isoformat(),
+            "timezone": "America/Toronto",
+            "notifications": [],
+            "invitees": []
+        }]
+        st.code(json.dumps(example, indent=2), language="json")
+        raw = st.text_area("Paste here", height=220, placeholder="[\n  {...}\n]", key="evb_paste")  # unique
+        if st.button("Parse pasted JSON", key="evb_parse_paste"):  # unique
+            _load_json_into_preview(raw)
+
+    with tab2:
+        up = st.file_uploader("Upload a .txt containing JSON", type=["txt"], key="evb_uploader")  # unique
+        if up is not None and st.button("Parse uploaded file", key="evb_parse_upload"):  # unique
+            try:
+                raw = up.read().decode("utf-8")
+                _load_json_into_preview(raw)
+            except Exception as e:
+                _error(f"Failed to read file: {e}")
+
+    with tab3:
+        st.markdown("Describe your events in plain English (stubbed for now).")
+        st.info('Example: "Study group Monday 7–8pm at DC Library; Coffee with Maya Tue 9:30am."')
+        nl = st.text_area("Your description", height=140, key="evb_nl")  # unique
+        st.checkbox("I agree to pay for LLM parsing.", key="evb_billing_ok")  # unique
+        if st.button("Generate structured events with LLM", key="evb_generate_llm"):  # unique
+            if not st.session_state["evb_llm_enabled"]:
+                _error("Enable LLM parsing first.")
+            elif not st.session_state["evb_billing_ok"]:
+                _error("Please agree to pay for LLM parsing.")
+            elif not nl.strip():
+                _error("Please enter a description.")
+            else:
+                _error("LLM parsing is not enabled yet. (Stub)")
+
+    st.divider()
+    st.subheader("Preview & edit")
+    if st.session_state["parsed_events_df"].empty:
+        st.caption("No records loaded yet.")
+    else:
+        edited = st.data_editor(
+            st.session_state["parsed_events_df"],
+            use_container_width=True,
+            height=360,
+            num_rows="dynamic",
+            key="evb_editor",  # unique
+        )
+        st.session_state["parsed_events_df"] = edited
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("🚀 Create events", key="evb_create_events"):  # unique
+                _create_events_batch(service, edited)
+        with c2:
+            if st.button("🗑️ Undo last import", key="evb_undo"):  # unique
+                _undo_last_batch(service)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Settings (lightweight for now)
+
+def show_settings(service):
+    _init_session_defaults()
+    st.title("⚙️ Settings")
+    st.caption("Session info and export.")
+
+    st.markdown("**Signed in as**: " + (st.session_state.get("user_email") or "Unknown"))
+    active_id = st.session_state.get("active_calendar","primary")
+    active_name = _calendar_name_for_id(active_id)
+    st.markdown("**Active calendar**: " + f"`{active_name}` · `{active_id}`")
+
+
+    with st.expander("Session usage"):
+        st.json(st.session_state.get("usage_stats", {}))
+
+    if not st.session_state["parsed_events_df"].empty:
+        st.download_button(
+            label="Download current preview as CSV",
+            data=st.session_state["parsed_events_df"].to_csv(index=False),
+            file_name="event_preview.csv",
+            mime="text/csv"
+        )
