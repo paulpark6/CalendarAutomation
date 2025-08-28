@@ -1,7 +1,7 @@
 # streamlit_app/ui.py
 import json
 import datetime as dt
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 import pandas as pd
 import streamlit as st
@@ -9,44 +9,31 @@ import streamlit as st
 # External helpers you said exist in project_code/*
 from project_code import calendar_methods as cal
 from project_code import creating_calendar as create_mod
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Session keys we’ll use:
-#   st.session_state["user_email"]: str
-#   st.session_state["parsed_events_df"]: pd.DataFrame
-#   st.session_state["undo_stack"]: List[List[str]]  # batches of created Google event IDs
-#   st.session_state["usage_stats"]: Dict[str, Any]  # {"events_added": int, "last_action": str}
-#   st.session_state["active_calendar"]: str
-#   st.session_state["llm_enabled"]: bool
-#   st.session_state["billing_ok"]: bool
-
 from google.auth.transport.requests import AuthorizedSession
+from pathlib import Path
+from google.oauth2.credentials import Credentials
 
 def _authed_session_from_service(service):
-    """Build a Requests-based authorized session (bypasses httplib2)."""
+    # 1) Preferred: creds we saved at login
     creds = st.session_state.get("credentials")
+
+    # 2) Fallback: creds attached to the discovery client's HTTP adapter
     if creds is None:
         creds = getattr(getattr(service, "_http", None), "credentials", None)
+
+    # 3) Last-chance fallback: load token file (same path as auth.py)
     if creds is None:
-        raise RuntimeError("Google credentials not found in session.")
+        token_path = Path("UserData/token.json")
+        if token_path.exists():
+            creds = Credentials.from_authorized_user_file(str(token_path), ["https://www.googleapis.com/auth/calendar"])
+            st.session_state.credentials = creds  # cache for the rest of the session
+
+    # 4) If still nothing, fail with a clear error
+    if creds is None:
+        raise RuntimeError("Google credentials not found in session. Please sign in again.")
+
     return AuthorizedSession(creds)
 
-def _list_calendars_safe(service) -> list[dict]:
-    """[{id, summary}] using requests transport (stable on py3.13)."""
-    sess = _authed_session_from_service(service)
-    url = "https://www.googleapis.com/calendar/v3/users/me/calendarList"
-    out, token = [], None
-    while True:
-        params = {"maxResults": 250}
-        if token: params["pageToken"] = token
-        r = sess.get(url, params=params, timeout=30)
-        r.raise_for_status()
-        data = r.json()
-        out += [{"id": it["id"], "summary": it.get("summary", it["id"])}
-                for it in data.get("items", [])]
-        token = data.get("nextPageToken")
-        if not token: break
-    return out
 
 def _create_calendar_safe(service, name: str) -> str:
     """Create a calendar with `summary=name`; return its ID."""
@@ -56,35 +43,34 @@ def _create_calendar_safe(service, name: str) -> str:
     r.raise_for_status()
     return r.json()["id"]
 
-# ---- cache + labeling ----
-def _refresh_calendars(service):
-    cals = _list_calendars_safe(service)
-    st.session_state["calendars"] = cals
-    # if active disappears, pick the first
-    if cals and not any(c["id"] == st.session_state.get("active_calendar") for c in cals):
-        st.session_state["active_calendar"] = cals[0]["id"]
-    return cals
-
-def _get_calendars_cached(service):
-    return st.session_state.get("calendars") or _refresh_calendars(service)
-
 def _calendar_label(cal: dict) -> str:
     return f"{cal.get('summary', cal['id'])} · {cal['id']}"
 
-def _calendar_name_for_id(cal_id: str) -> str:
-    for c in st.session_state.get("calendars", []):
-        if c["id"] == cal_id:
-            return c.get("summary", cal_id)
-    return cal_id
-
 
 def _refresh_calendars(service):
-    """Fetch calendars and cache them in session_state['calendars']."""
-    cals = _list_calendars_safe(service)  # your requests-based function
+    """
+    Fetches the list of calendars for the current user from Google Calendar,
+    updates the Streamlit session state with the latest list, and ensures
+    that the currently 'active' calendar is still valid.
+
+    Purpose:
+    - To keep the user's calendar list in sync with Google and maintain a valid active calendar selection.
+    """
+
+    # Call a helper function to retrieve the list of calendars from Google Calendar API.
+    # This function uses a requests-based approach for robustness.
+    cals = _list_calendars_safe(service)
+
+    # Store the fetched list of calendars in Streamlit's session state under the key "calendars".
+    # This allows other parts of the app to access the up-to-date calendar list without refetching.
     st.session_state["calendars"] = cals
-    # If active calendar vanished, reset to first/primary
+
+    # Check if the currently selected "active_calendar" is still present in the new list.
+    # If not (for example, if it was deleted), reset "active_calendar" to the first calendar in the list.
     if cals and not any(c["id"] == st.session_state.get("active_calendar") for c in cals):
         st.session_state["active_calendar"] = cals[0]["id"]
+
+    # Return the list of calendars so the caller can use it immediately if needed.
     return cals
 
 def _get_calendars_cached(service):
@@ -93,35 +79,12 @@ def _get_calendars_cached(service):
         return _refresh_calendars(service)
     return st.session_state["calendars"]
 
-def _calendar_label(cal):
-    """Return 'name · id' label."""
-    return f"{cal.get('summary', cal['id'])} · {cal['id']}"
-
 def _calendar_name_for_id(cal_id: str) -> str:
     cals = st.session_state.get("calendars", [])
     for c in cals:
         if c["id"] == cal_id:
             return c.get("summary", cal_id)
     return cal_id
-
-
-def _authed_session_from_service(service):
-    # Try to grab creds stored at login (recommended)
-    creds = st.session_state.get("credentials")
-    if creds is None:
-        # Fallback: grab creds off the service's HTTP adapter
-        creds = getattr(getattr(service, "_http", None), "credentials", None)
-    if creds is None:
-        raise RuntimeError("Google credentials not found in session.")
-    return AuthorizedSession(creds)
-
-
-def _create_calendar_safe(service, name: str) -> str:
-    sess = _authed_session_from_service(service)
-    r = sess.post("https://www.googleapis.com/calendar/v3/calendars",
-                  json={"summary": name}, timeout=30)
-    r.raise_for_status()
-    return r.json()["id"]
 
 
 def _init_session_defaults():
@@ -154,21 +117,75 @@ def show_login_page(on_login=None, error_message=None):
 # ──────────────────────────────────────────────────────────────────────────────
 # Home
 
-def _list_calendars_safe(service):
+
+def _list_calendars_safe(service) -> list[dict]:
+    """
+    Retrieve a list of Google Calendars accessible to the user via the Google Calendar API.
+
+    Returns:
+        A list of dictionaries, each representing a calendar with the following keys:
+            - id: The unique calendar ID.
+            - summary: The display name of the calendar.
+            - accessRole: The user's access level (e.g., owner, writer, reader).
+            - primary: Boolean indicating if this is the user's primary calendar.
+
+    How it works:
+    -------------
+    1. Uses the authenticated session from the provided Google API service object.
+    2. Sets the API endpoint to the Google Calendar 'calendarList' endpoint.
+    3. Initializes an empty output list (`out`) and a pagination token (`token`).
+    4. Enters a loop to fetch all calendar pages (Google may paginate results).
+        a. Sets request parameters, including a maximum of 250 results per page.
+        b. If a pagination token exists, adds it to the request parameters to fetch the next page.
+        c. Makes a GET request to the API endpoint with the current parameters.
+        d. Raises an exception if the request fails (ensures errors are not silently ignored).
+        e. Parses the JSON response.
+        f. Iterates over each calendar item in the response:
+            - Extracts the calendar's id, summary (name), accessRole, and primary status.
+            - Appends a dictionary with these fields to the output list.
+        g. Checks for a 'nextPageToken' in the response:
+            - If present, sets `token` to this value to fetch the next page in the next loop iteration.
+            - If not present, breaks the loop (all calendars have been fetched).
+    5. Returns the complete list of calendar dictionaries.
+
+    Notes:
+        - This function uses direct HTTP requests (requests transport) instead of the Google API client library's built-in methods.
+        - Handles pagination to ensure all calendars are retrieved, not just the first page.
+        - Only includes selected fields for each calendar for simplicity and efficiency.
+    """
+    # Get an authenticated HTTP session from the Google API service.
     sess = _authed_session_from_service(service)
+    # Google Calendar API endpoint for listing user's calendars.
     url = "https://www.googleapis.com/calendar/v3/users/me/calendarList"
-    out, token = [], None
+    out = []    # List to accumulate calendar info dictionaries.
+    token = None  # Pagination token for fetching additional pages.
+
     while True:
+        # Prepare request parameters. maxResults=250 is the API's upper limit per page.
         params = {"maxResults": 250}
         if token:
+            # If a nextPageToken exists, include it to fetch the next page.
             params["pageToken"] = token
+        # Make the GET request to the API endpoint.
         r = sess.get(url, params=params, timeout=30)
+        # Raise an exception if the request failed (e.g., network error, auth error).
         r.raise_for_status()
+        # Parse the JSON response.
         data = r.json()
-        out += [{"id": it["id"], "summary": it.get("summary", it["id"])} for it in data.get("items", [])]
+        # Iterate over each calendar in the response.
+        for it in data.get("items", []):
+            out.append({
+                "id": it["id"],  # Unique calendar ID.
+                "summary": it.get("summary", it["id"]),  # Display name, fallback to ID.
+                "accessRole": it.get("accessRole"),      # User's access level.
+                "primary": it.get("primary", False),     # True if this is the primary calendar.
+            })
+        # Check if there is another page of results.
         token = data.get("nextPageToken")
         if not token:
+            # No more pages; break the loop.
             break
+    # Return the complete list of calendar info dictionaries.
     return out
 
 def _fetch_upcoming_events(service, calendar_id: str, max_count: int = 50) -> List[Dict[str, Any]]:
