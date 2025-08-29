@@ -4,6 +4,7 @@ streamlit-autorefresh>=1.0.1
 pandas>=2.2
 numpy>=2.2
 python-dotenv>=1.0
+streamlit-aggrid>=0.3.4
 
 # Google APIs
 google-api-python-client>=2.169.0

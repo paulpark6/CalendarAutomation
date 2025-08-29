@@ -9,7 +9,8 @@ import datetime
 from .llm_methods import *
 from .auth import *
 from numpy import array
-from datetime import datetime
+from datetime import datetime, date, timedelta
+
 
 
 def save_events(email: str, service, event_records):
@@ -91,7 +92,9 @@ def clean_event_record(event_record, service):
     # Define all required keys for an event record
     REQUIRED_EVENT_KEYS = [
         "unique_key", "calendar_name", "title", "event_date",
-        "description", "calendar_id", "event_time", "end_date", "timezone", "notifications", "invitees"
+        "description", "calendar_id", "event_time", "end_date",
+        "timezone", "notifications", "invitees",
+        "location", "recurrence"   # NEW
     ]
 
     # Make a copy to avoid mutating the input
@@ -107,6 +110,10 @@ def clean_event_record(event_record, service):
                 event_record['calendar_id'] = set_calendar_id(
                     service, "Automated Calendar", event_record.get("timezone", "America/Toronto")
                 )
+            elif key == "location":
+                event_record["location"] = ""
+            elif key == "recurrence":
+                event_record["recurrence"] = ""    # can be "", "RRULE:...", or list[str]
             elif key == "title":
                 event_record['title'] = "Enter Title Here"
             elif key == "event_date":
@@ -194,7 +201,10 @@ def load_events(email):
     """
     columns = [
         "user_email", "unique_key", "calendar_name", "title", "event_date",
-        "description", "calendar_id", "event_time", "end_date", "timezone", "notifications", "invitees"
+        "description", "calendar_id", "event_time", "end_date", "timezone",
+        "notifications", "invitees",
+        "location",          # NEW
+        "recurrence"         # NEW (string RRULE or list[str])
     ]
     path = f"UserData/{email}_created_events.json"
     if not os.path.exists(path):
@@ -276,17 +286,18 @@ def generate_event_key(
     end_date: str = "",
     timezone: str = "America/Toronto",
     notifications: Optional[List[Dict[str, Any]]] = None,
-    invitees: Optional[List[str]] = None
-    ) -> str:
-    """
-    Generate a deterministic unique key for an event based only on its input parameters.
-    """
+    invitees: Optional[List[str]] = None,
+    location: str = "",                       # NEW
+    recurrence: Any = ""                      # NEW
+) -> str:
     event_time_part = event_time or ""
     notifications_part = (
-        "|".join([f"{n['method']}@{n['minutes']}" for n in notifications])
-        if notifications else ""
+        "|".join([f"{n['method']}@{n['minutes']}" for n in notifications]) if notifications else ""
     )
     invitees_part = ",".join(sorted(invitees)) if invitees else ""
+    recurrence_part = (
+        ";".join(recurrence) if isinstance(recurrence, list) else (recurrence or "")
+    )
     key_string = "\x1F".join([
         "automated",
         title,
@@ -297,10 +308,13 @@ def generate_event_key(
         end_date,
         timezone,
         notifications_part,
-        invitees_part
+        invitees_part,
+        location,            # NEW
+        recurrence_part      # NEW
     ])
-    key_hash = hashlib.sha1(key_string.encode('utf-8')).hexdigest()
+    key_hash = hashlib.sha1(key_string.encode("utf-8")).hexdigest()
     return key_hash
+
 
 def push_all_local_events_to_google(service, email):
     df = load_events(email)
@@ -319,66 +333,166 @@ def push_all_local_events_to_google(service, email):
             user_email=event.get("user_email", "")
         )
 
-def add_event_to_google_calendar(service, event_record):
-    return create_single_event(
-        service,
-        calendar_id=event_record["calendar_id"],
-        title=event_record["title"],
-        description=event_record["description"],
-        event_date=event_record["event_date"],
-        event_time=event_record["event_time"],
-        end_date=event_record["end_date"],
-        timezone=event_record["timezone"],
-        notifications=event_record["notifications"],
-        invitees=event_record["invitees"],
-        user_email=event_record.get("user_email", "")
-    )
 
-def create_single_event(service, event_record: dict) -> dict:
+def _normalize_time_str(t: str) -> str:
+    """Return HH:MM:SS from an input like '10', '10:00', or '10:00:00'."""
+    if not t:
+        return ""
+    t = t.strip()
+    if len(t) == 1:
+        t = f"0{t}:00:00"
+    elif len(t) == 2 and t.isdigit():
+        t = f"{t}:00:00"
+    elif len(t) == 5 and t[2] == ":":
+        t = f"{t}:00"
+    return t
+
+def _exclusive_end_for_all_day(d: str) -> str:
+    """Google requires end.date to be exclusive."""
+    try:
+        return (date.fromisoformat(d) + timedelta(days=1)).isoformat()
+    except Exception:
+        return d  # fallback
+
+def _as_list_rrule(recurrence) -> Optional[list]:
+    """Accept '', 'RRULE:...', or list[str]; normalize to list[str] or None."""
+    if not recurrence:
+        return None
+    if isinstance(recurrence, list):
+        return [str(x) for x in recurrence if str(x).strip()]
+    s = str(recurrence).strip()
+    if not s:
+        return None
+    if not s.upper().startswith("RRULE:"):
+        s = "RRULE:" + s
+    return [s]
+
+def create_single_event(
+    service,
+    calendar_id: str,
+    title: str,
+    description: str,
+    event_date: str,
+    event_time: str = "",
+    end_date: str = "",
+    timezone: str = "",
+    notifications: Optional[List[Dict[str, Any]]] = None,
+    invitees: Optional[List[str]] = None,
+    location: str = "",                          # NEW
+    recurrence: Any = None,                      # NEW (string RRULE or list[str])
+    user_email: str = "",
+    send_updates: str = "none",
+):
     """
-    Create a single Google Calendar event from an event_record dictionary and return the updated event_record dict.
-    This function uses clean_event_record to ensure all required fields are present and filled.
+    Backward-compatible creator used by UI. Builds correct all-day/timed bodies,
+    and supports location + recurrence.
     """
-    # Clean and fill the event record first
-    event_record = clean_event_record(event_record, service)
+    # Clean/sensible defaults
+    notifications = notifications or []
+    invitees = invitees or []
+    event_time = (event_time or "").strip()
+    timezone = (timezone or "").strip()
 
-    # Extract fields from the cleaned event_record
-    title = event_record['title']
-    description = event_record['description']
-    event_date = event_record['event_date']
-    end_date = event_record['end_date']
-    calendar_id = event_record['calendar_id']
-    event_time = event_record['event_time']
-    timezone = event_record['timezone']
-    notifications = event_record['notifications']
-    invitees = event_record['invitees']
-    user_email = event_record.get('user_email', '')
-    unique_key = event_record['unique_key']
+    # Determine timed vs all-day
+    is_timed = bool(event_time)
+    if is_timed:
+        t = _normalize_time_str(event_time)  # 'HH:MM:SS'
+        start = {"dateTime": f"{event_date}T{t}", "timeZone": timezone or "UTC"}
+        # If end_date is missing, keep same date; creator can set duration elsewhere if desired
+        end_dt_date = (end_date or event_date)
+        end = {"dateTime": f"{end_dt_date}T{t}", "timeZone": timezone or "UTC"}
+    else:
+        # TRUE all-day: date only, and end.date must be exclusive
+        start = {"date": event_date}
+        end_base = end_date or event_date
+        end = {"date": _exclusive_end_for_all_day(end_base)}
 
-    # Set up reminders
-    overrides = notifications
-
-    event = {
-        'summary': title,
-        'description': description,
-        'start':  (
-            {'dateTime': f"{event_date}T{event_time}", 'timeZone': timezone}
-            if event_time else {'date': event_date}
-        ),
-        'end':    (
-            {'dateTime': f"{end_date}T{event_time}", 'timeZone': timezone}
-            if event_time else {'date': end_date}
-        ),
-        'reminders': {
-            'useDefault': False,
-            'overrides': overrides
-        },
-        'attendees': [{'email': e} for e in invitees]
+    body = {
+        "summary": title,
+        "description": description or None,
+        "start": start,
+        "end": end,
+        "reminders": {"useDefault": False, "overrides": notifications},
+        "attendees": [{"email": e} for e in invitees if e],
     }
-    created = service.events().insert(calendarId=calendar_id, body=event).execute()
-    calendar_name = created['id']
-    # Update the event_record with the Google Calendar event id
-    event_record['calendar_name'] = calendar_name
-    return event_record 
 
-    
+    if location:
+        body["location"] = location
+
+    rr = _as_list_rrule(recurrence)
+    if rr:
+        body["recurrence"] = rr
+
+    created = service.events().insert(calendarId=calendar_id, body=body, sendUpdates=send_updates).execute()
+    # Return the API's event payload so callers can read 'id'
+    return created
+
+def create_single_event_from_record(service, event_record: dict):
+    """
+    Adapter that turns a single event *record dict* (as produced by the UI/DataFrame)
+    into a call to `create_single_event(...)`.
+
+    Purpose
+    -------
+    Keep the UI and bulk code simple: they can pass one dictionary per event, while this
+    thin wrapper extracts fields, applies safe defaults, and forwards them to the canonical
+    creator. This also centralizes schema evolution—if you add fields (e.g., `location`,
+    `recurrence`) you only update this mapping rather than every call site.
+
+    Parameters
+    ----------
+    service : Any
+        Authenticated Google Calendar API client (`service.events().insert(...).execute()`).
+    event_record : dict
+        A single event row with (optional) keys:
+          - "calendar_id": str (default "primary")
+          - "title": str (default "Untitled")
+          - "description": str (default "")
+          - "event_date": "YYYY-MM-DD" (required for all events)
+          - "event_time": "HH:MM" or "HH:MM:SS" (optional; if blank/missing, the event is treated
+            as **all-day** by `create_single_event`, which uses date-only start/end with an
+            exclusive end date = start + 1 day)
+          - "end_date": "YYYY-MM-DD" (optional; defaults to event_date; for all-day, the creator
+            will ensure exclusive end)
+          - "timezone": IANA tz string (e.g., "America/Toronto"); ignored for all-day
+          - "notifications": list[{"method": "email"|"popup", "minutes": int}] (default [])
+          - "invitees": list[str] of attendee emails (default [])
+          - "location": str (default "")
+          - "recurrence": str like "RRULE:FREQ=WEEKLY;COUNT=8" or list[str] of RRULEs (optional)
+          - "user_email": str (optional; forwarded untouched)
+
+    Behavior
+    --------
+    - Performs a shallow copy of the input dict to avoid mutating the caller.
+    - Forwards values and defaults to `create_single_event(...)`, which:
+        * builds **timed** events when `event_time` is present (dateTime + timeZone), or
+        * builds **true all-day** events when `event_time` is blank (date-only with exclusive end).
+
+    Returns
+    -------
+    dict
+        The Google Calendar Event resource returned by the API (includes fields like "id").
+
+    Raises
+    ------
+    googleapiclient.errors.HttpError
+        If the Calendar API call fails.
+    ValueError / KeyError
+        If upstream validation in `create_single_event` rejects inputs.
+    """
+    er = dict(event_record)
+    return create_single_event(
+        service=service,
+        calendar_id=er.get("calendar_id", "primary"),
+        title=er.get("title", "Untitled"),
+        description=er.get("description", ""),
+        event_date=er.get("event_date", ""),
+        event_time=er.get("event_time", ""),
+        end_date=er.get("end_date", ""),
+        timezone=er.get("timezone", ""),
+        notifications=er.get("notifications") or [],
+        invitees=er.get("invitees") or [],
+        location=er.get("location", ""),
+        recurrence=er.get("recurrence"),
+        user_email=er.get("user_email", ""),
+    )
