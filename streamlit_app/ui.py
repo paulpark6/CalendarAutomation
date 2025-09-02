@@ -370,8 +370,8 @@ def _sanitize_rows(rows: list[dict]) -> list[dict]:
 
         # String-ish fields
         for k in ["title", "description", "calendar_id", "calendar_name",
-                  "google_calendar_id", "event_date", "event_time", "end_date",
-                  "timezone", "location", "recurrence", "user_email"]:
+                "google_calendar_id", "event_date", "event_time", "end_time",  # ← add here
+                "end_date", "timezone", "location", "recurrence", "user_email"]:
             if k in rr:
                 rr[k] = _str_or_empty(rr.get(k))
 
@@ -399,6 +399,7 @@ def _normalize_all_day_rows(rows: list[dict]) -> list[dict]:
         d = _str_or_empty(rr.get("event_date"))
         if not t and d:
             rr["event_time"] = ""
+            rr["end_time"] = ""      # NEW: clear end_time for all-day
             rr["timezone"] = ""
             if not _str_or_empty(rr.get("end_date")):
                 rr["end_date"] = d
@@ -751,7 +752,7 @@ def show_event_builder(service):
 
     with tab1:
         st.markdown("Describe your events in plain English (stubbed for now).")
-        st.info('Example: "Study group Monday 7–8pm at DC Library; Coffee with Maya Tue 9:30am."')
+        st.info('Example: "Study group Monday 7-8pm at DC Library; Coffee with Maya Tue 9:30am."')
         nl = st.text_area("Your description", height=140, key="evb_nl")
         st.checkbox("I agree to pay for LLM parsing.", key="evb_billing_ok")
         if st.button("Generate structured events with LLM", key="evb_generate_llm"):
@@ -779,14 +780,15 @@ def show_event_builder(service):
             "event_date": dt.date.today().isoformat(),
             "description": "Optional",
             "event_time": "10:00",        # omit for all-day
+            "end_time": "10:45",          # NEW: optional; default applied if missing
             "end_date": dt.date.today().isoformat(),
             "notifications": [],
             "invitees": [],
             "location": "",
             "recurrence": ""              # e.g., "RRULE:FREQ=WEEKLY;COUNT=8"
         }]
+        st.caption("Tip: leave `event_time` blank for an **all-day** event. If you provide `event_time` without `end_time`, a default duration is applied.")
         st.code(json.dumps(example, indent=2), language="json")
-        st.caption("Tip: leave `event_time` blank for an **all-day** event.")
         raw = st.text_area("Paste here", height=220, placeholder="[\n  {...}\n]", key="evb_paste")
         if st.button("Parse pasted JSON", key="evb_parse_paste"):
             _load_json_into_preview(raw)
@@ -889,6 +891,7 @@ def _create_events_batch(service, df: pd.DataFrame):
                     description=r.get("description") or "",
                     event_date=r.get("event_date") or "",
                     event_time=r.get("event_time") or "",
+                    end_time=r.get("end_time") or "",      # NEW: pass along if present
                     end_date=r.get("end_date") or r.get("event_date") or "",
                     timezone=tz_to_use,
                     notifications=r.get("notifications") or [],
@@ -898,6 +901,7 @@ def _create_events_batch(service, df: pd.DataFrame):
                     user_email=email,
                     send_updates="none",
                 )
+
                 ev_id = (created or {}).get("id")
                 if ev_id:
                     created_refs.append({"id": ev_id, "iCalUID": (created or {}).get("iCalUID")})

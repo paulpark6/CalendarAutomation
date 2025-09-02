@@ -6,10 +6,11 @@ import json
 import os
 import hashlib
 import datetime
-from .llm_methods import *
 from .auth import *
 from numpy import array
 from datetime import datetime, date, timedelta
+
+DEFAULT_TIMED_DURATION_MIN = 45  # used only if end_time is missing
 
 
 
@@ -367,42 +368,62 @@ def _as_list_rrule(recurrence) -> Optional[list]:
         s = "RRULE:" + s
     return [s]
 
+
 def create_single_event(
     service,
     calendar_id: str,
     title: str,
     description: str,
     event_date: str,
-    event_time: str = "",
+    event_time: str,           # "" for all-day
+    end_time: str = "",        # OPTIONAL: used when provided
     end_date: str = "",
     timezone: str = "",
-    notifications: Optional[List[Dict[str, Any]]] = None,
-    invitees: Optional[List[str]] = None,
-    location: str = "",                          # NEW
-    recurrence: Any = None,                      # NEW (string RRULE or list[str])
-    user_email: str = "",
+    notifications: list | None = None,
+    invitees: list | None = None,
+    location: str = "",
+    recurrence: str | None = None,
+    user_email: str | None = None,
     send_updates: str = "none",
 ):
     """
     Backward-compatible creator used by UI. Builds correct all-day/timed bodies,
-    and supports location + recurrence.
+    supports optional end_time, location, and recurrence.
     """
     # Clean/sensible defaults
     notifications = notifications or []
     invitees = invitees or []
     event_time = (event_time or "").strip()
-    timezone = (timezone or "").strip()
+    end_time   = (end_time or "").strip()
+    timezone   = (timezone or "").strip()
 
-    # Determine timed vs all-day
+    # ---- Determine timed vs all-day
     is_timed = bool(event_time)
     if is_timed:
-        t = _normalize_time_str(event_time)  # 'HH:MM:SS'
-        start = {"dateTime": f"{event_date}T{t}", "timeZone": timezone or "UTC"}
-        # If end_date is missing, keep same date; creator can set duration elsewhere if desired
-        end_dt_date = (end_date or event_date)
-        end = {"dateTime": f"{end_dt_date}T{t}", "timeZone": timezone or "UTC"}
+        # START
+        start_t = _normalize_time_str(event_time)                 # "HH:MM:SS"
+        start_iso = f"{event_date}T{start_t}"
+        start = {"dateTime": start_iso}
+        if timezone:
+            start["timeZone"] = timezone  # omit if blank → calendar default
+
+        # END (use end_time when present; else default duration)
+        if end_time:
+            end_t = _normalize_time_str(end_time)                 # "HH:MM:SS"
+            # If no explicit end_date and end_time is earlier than start_time, roll to next day
+            end_dt_date = end_date or event_date
+            if not end_date and _hhmmss_tuple(end_t) < _hhmmss_tuple(start_t):
+                end_dt_date = (datetime.strptime(event_date, "%Y-%m-%d") + timedelta(days=1)).date().isoformat()
+            end_iso = f"{end_dt_date}T{end_t}"
+        else:
+            # No end_time → apply default duration
+            end_iso = _add_minutes_iso(start_iso, minutes=DEFAULT_TIMED_DURATION_MIN)
+
+        end = {"dateTime": end_iso}
+        if timezone:
+            end["timeZone"] = timezone
     else:
-        # TRUE all-day: date only, and end.date must be exclusive
+        # TRUE all-day: date-only; Google expects end.date to be exclusive
         start = {"date": event_date}
         end_base = end_date or event_date
         end = {"date": _exclusive_end_for_all_day(end_base)}
@@ -419,10 +440,67 @@ def create_single_event(
     if location:
         body["location"] = location
 
-    rr = _as_list_rrule(recurrence)
-    if rr:
-        body["recurrence"] = rr
+    rr_list = _as_list_rrule(recurrence)
+    if rr_list:
+        body["recurrence"] = rr_list
 
     created = service.events().insert(calendarId=calendar_id, body=body, sendUpdates=send_updates).execute()
-    # Return the API's event payload so callers can read 'id'
     return created
+
+
+# ---------- helpers (keep in the same module) ----------
+
+def _normalize_time_str(t: str) -> str:
+    """
+    Accepts 'HH:MM' or 'HH:MM:SS' or common terms ('noon','midnight','12pm','12am').
+    Returns 24h 'HH:MM:SS'. Raises ValueError on bad input.
+    """
+    s = (t or "").strip().lower()
+    if s in {"noon", "12pm", "12:00pm", "12:00 pm"}:
+        return "12:00:00"
+    if s in {"midnight", "12am", "12:00am", "12:00 am"}:
+        return "00:00:00"
+
+    parts = s.split(":")
+    if len(parts) == 2:
+        hh, mm = parts
+        ss = "00"
+    elif len(parts) == 3:
+        hh, mm, ss = parts
+    else:
+        raise ValueError(f"Bad time format: {t!r}")
+
+    h = int(hh); m = int(mm); sec = int(ss)
+    if not (0 <= h <= 23 and 0 <= m <= 59 and 0 <= sec <= 59):
+        raise ValueError(f"Out-of-range time: {t!r}")
+    return f"{h:02d}:{m:02d}:{sec:02d}"
+
+
+def _hhmmss_tuple(s: str) -> tuple[int, int, int]:
+    hh, mm, ss = s.split(":")
+    return int(hh), int(mm), int(ss)
+
+
+def _add_minutes_iso(start_iso_local: str, minutes: int) -> str:
+    """
+    start_iso_local: 'YYYY-MM-DDTHH:MM:SS' (no TZ). Returns same format after adding minutes.
+    """
+    dt = datetime.strptime(start_iso_local, "%Y-%m-%dT%H:%M:%S")
+    dt2 = dt + timedelta(minutes=int(minutes))
+    return dt2.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _exclusive_end_for_all_day(d: str) -> str:
+    """
+    Given an all-day base date 'YYYY-MM-DD', return the exclusive end date (next day).
+    """
+    base = datetime.strptime(d, "%Y-%m-%d").date()
+    return (base + timedelta(days=1)).isoformat()
+
+
+def _as_list_rrule(rr):
+    if not rr:
+        return []
+    if isinstance(rr, list):
+        return rr
+    return [rr]
