@@ -103,6 +103,14 @@ def _client_cfg_from_secrets() -> dict:
         }
     }
 
+def get_default_calendar_timezone(service, calendar_id: str = "primary") -> str:
+    """Return the timeZone of the specified calendar (default: primary)."""
+    try:
+        cal = service.calendars().get(calendarId=calendar_id).execute()
+        return cal.get("timeZone", "UTC")
+    except Exception:
+        return "UTC"
+
 
 def get_user_service_local() -> Tuple[Optional[any], Optional[Credentials]]:
     """
