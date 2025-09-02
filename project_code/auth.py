@@ -21,6 +21,43 @@ TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 from typing import Optional
 
+# --- Logout helpers -----------------------------------------------------------
+import requests
+
+def revoke_google_token(creds) -> None:
+    """
+    Best-effort revoke of the current access/refresh token with Google.
+    Safe to call even if token is already invalidated.
+    """
+    try:
+        token = getattr(creds, "token", None) or getattr(creds, "refresh_token", None)
+        if not token:
+            return
+        requests.post(
+            "https://oauth2.googleapis.com/revoke",
+            params={"token": token},
+            timeout=5,
+        )
+    except Exception:
+        pass  # ignore network errors; we'll still delete the cached token file
+
+def delete_token_file(token_path: Path = TOKEN_PATH) -> None:
+    """Remove the persisted token file from disk (if it exists)."""
+    try:
+        token_path.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+def logout_and_delete_token(creds=None, token_path: Path = TOKEN_PATH) -> None:
+    """
+    Full logout routine:
+    1) Revoke token with Google (best-effort)
+    2) Delete token.json from disk
+    """
+    revoke_google_token(creds)
+    delete_token_file(token_path)
+
+
 def get_authenticated_email(service, creds: Optional[Credentials] = None) -> Optional[str]:
     """
     Returns the signed-in user's email. Tries the OAuth userinfo endpoint first,
@@ -94,7 +131,7 @@ def get_user_service_web() -> Tuple[Optional[any], Optional[Credentials]]:
     """
     Cloud-safe OAuth using redirect back to your app and st.query_params.
     - Shows a 'Continue with Google' link if no code is present.
-    - On redirect (?code=...), exchanges code for tokens, saves them, and returns a service.
+    - On redirect (?code=...), exchanges code for tokens and returns a service.
     """
     client_cfg = _client_cfg_from_secrets()
     redirect_uri = st.secrets["google_oauth"]["redirect_uri"]
@@ -110,7 +147,7 @@ def get_user_service_web() -> Tuple[Optional[any], Optional[Credentials]]:
         service = build("calendar", "v3", credentials=sess_creds, cache_discovery=False)
         return service, sess_creds
 
-    # Build/remember the auth URL & state exactly once to avoid state mismatches on reruns
+    # Build/remember the auth URL & state once to avoid mismatches on reruns
     if "oauth_auth_url" not in st.session_state or "oauth_state" not in st.session_state:
         flow_tmp = Flow.from_client_config(client_cfg, scopes=SCOPES, redirect_uri=redirect_uri)
         auth_url, state = flow_tmp.authorization_url(
@@ -134,7 +171,7 @@ def get_user_service_web() -> Tuple[Optional[any], Optional[Credentials]]:
         st.link_button("Continue with Google", auth_url, use_container_width=True)
         return None, None
 
-    # If state doesn't match (e.g., rerun created a new state), re-offer the login link
+    # If state doesn't match, re-offer the login link
     if returned_state != expected_state:
         st.error("Invalid OAuth state. Please click 'Continue with Google' again.")
         st.link_button("Continue with Google", auth_url, use_container_width=True)
@@ -145,12 +182,18 @@ def get_user_service_web() -> Tuple[Optional[any], Optional[Credentials]]:
     flow.fetch_token(code=code)
     creds: Credentials = flow.credentials
 
-    # Persist to disk (single file, per your current design)
-    TOKEN_PATH.write_text(creds.to_json())
+    # ✅ Cloud-safe: store in session only
     st.session_state["credentials"] = creds
     st.session_state["google_creds_json"] = creds.to_json()
 
-    # Clear query params so we don't loop with ?code=...
+    # 🛠 Dev-only: write token file (useful on localhost)
+    if st.secrets.get("app", {}).get("mode") == "dev":
+        TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+        TOKEN_PATH.write_text(creds.to_json())
+
+    # Clean up state & query params to avoid loops
+    st.session_state.pop("oauth_auth_url", None)
+    st.session_state.pop("oauth_state", None)
     try:
         st.query_params.clear()
     except Exception:
@@ -158,6 +201,7 @@ def get_user_service_web() -> Tuple[Optional[any], Optional[Credentials]]:
 
     service = build("calendar", "v3", credentials=creds, cache_discovery=False)
     return service, creds
+
 
 
 # ---------------------------------------------------------------------
