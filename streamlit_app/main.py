@@ -51,6 +51,14 @@ def _maybe_timeout_logout():
     if idle >= TIMEOUT_SECS:
         _do_logout("timeout")
 
+def ensure_auth():
+    service, creds = get_user_service()   # renders the Google link if not signed in
+    if not service:
+        st.stop()                         # pause until the OAuth redirect returns
+    st.session_state["service"] = service
+    st.session_state["credentials"] = creds
+    return service, creds
+
 def main():
     st.set_page_config(page_title="Calendar Automation", page_icon="📅", layout="wide")
 
@@ -64,7 +72,7 @@ def main():
     # --- Login gate ---
     if st.session_state.service is None:
         def on_login():
-            service, creds = get_user_service()
+            service, creds = ensure_auth()
             st.session_state.service = service
             st.session_state.credentials = creds
             st.session_state.user_email = get_authenticated_email(service, creds)
@@ -72,6 +80,28 @@ def main():
             st.rerun()
 
         # Show a one-shot notice if prior run logged out due to timeout
+        if st.session_state.pop("logout_reason", None) == "timeout":
+            st.warning("You were logged out due to 2 hours of inactivity.")
+
+            # --- Login gate ---
+        if st.session_state.service is None:
+            def on_login():
+                service, creds = ensure_auth()
+                st.session_state.service = service
+                st.session_state.credentials = creds
+                st.session_state.user_email = get_authenticated_email(service, creds)
+                _touch_activity()
+                st.rerun()
+
+        # Auto-complete OAuth if Google just redirected back with ?code=
+        if "code" in st.query_params:
+            service, creds = ensure_auth()
+            st.session_state.service = service
+            st.session_state.credentials = creds
+            st.session_state.user_email = get_authenticated_email(service, creds)
+            _touch_activity()
+            st.rerun()
+
         if st.session_state.pop("logout_reason", None) == "timeout":
             st.warning("You were logged out due to 2 hours of inactivity.")
 

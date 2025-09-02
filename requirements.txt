@@ -3,8 +3,10 @@ streamlit>=1.36
 streamlit-autorefresh>=1.0.1
 pandas>=2.2
 numpy>=2.2
-python-dotenv>=1.0
 streamlit-aggrid>=0.3.4
+
+# Config / env
+python-dotenv>=1.0
 
 # Google APIs
 google-api-python-client>=2.169.0
@@ -30,6 +32,18 @@ protobuf>=6.30
 proto-plus>=1.26
 googleapis-common-protos>=1.70
 
-# Dev / testing (optional, can be in dev-requirements.txt)
+# --- LLM (BYOK via OpenAI) ---
+openai>=1.0.0,<2
+tenacity
+
+# --- Dates & parsing for validation.py ---
+python-dateutil>=2.9.0.post0
+dateparser
+tzdata
+
+# --- Tests & fixtures ---
+PyYAML
 pytest
+
+# Lint (optional)
 flake8
