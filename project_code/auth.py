@@ -8,7 +8,7 @@ from typing import Optional, Tuple
 import streamlit as st
 from google_auth_oauthlib.flow import InstalledAppFlow, Flow
 from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
+from google.auth.transport.requests import Request, AuthorizedSession
 from googleapiclient.discovery import build
 
 # ---------------------------------------------------------------------
@@ -18,6 +18,34 @@ from googleapiclient.discovery import build
 SCOPES = ["https://www.googleapis.com/auth/calendar"]  # full Calendar scope
 TOKEN_PATH = Path("UserData/token.json")               # single cached token file
 TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+from typing import Optional
+
+def get_authenticated_email(service, creds: Optional[Credentials] = None) -> Optional[str]:
+    """
+    Returns the signed-in user's email. Tries the OAuth userinfo endpoint first,
+    then falls back to the primary calendar id.
+    """
+    # Try OAuth userinfo (works for many tokens even without explicit userinfo scope)
+    if creds is not None:
+        try:
+            sess = AuthorizedSession(creds)
+            me = sess.get("https://www.googleapis.com/oauth2/v2/userinfo", timeout=10).json()
+            if isinstance(me, dict):
+                email = me.get("email")
+                if email:
+                    return email
+        except Exception:
+            pass
+
+    # Fallback via Calendar API: primary calendar id is the email
+    try:
+        data = service.calendarList().list(maxResults=50).execute()
+        primary = next((c for c in data.get("items", []) if c.get("primary")), None)
+        return primary.get("id") if primary else None
+    except Exception:
+        return None
+
 
 
 # ---------------------------------------------------------------------
