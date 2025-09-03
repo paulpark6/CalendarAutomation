@@ -110,17 +110,24 @@ def get_default_calendar_timezone(service, calendar_id: str = "primary") -> str:
         return cal.get("timeZone", "UTC")
     except Exception:
         return "UTC"
+# add this helper
+def _installed_client_cfg_from_secrets() -> dict:
+    gi = st.secrets["google_oauth_installed"]["client_id"]
+    gs = st.secrets["google_oauth_installed"]["client_secret"]
+    return {
+        "installed": {
+            "client_id": gi,
+            "client_secret": gs,
+            "auth_uri":  "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+        }
+    }
 
-
-def get_user_service_local() -> Tuple[Optional[any], Optional[Credentials]]:
-    """
-    Return a Google Calendar API service AND the credentials object.
-    Uses an installed-app flow (opens a local browser) — best for local dev.
-    """
-    flow = InstalledAppFlow.from_client_config(_client_cfg_from_secrets(), SCOPES)
+# change this function to use the installed config
+def get_user_service_local():
+    flow = InstalledAppFlow.from_client_config(_installed_client_cfg_from_secrets(), SCOPES)
     creds = flow.run_local_server(host="localhost", port=0, prompt="consent")
     TOKEN_PATH.write_text(creds.to_json())
-
     service = build("calendar", "v3", credentials=creds, cache_discovery=False)
     return service, creds
 
@@ -143,6 +150,12 @@ def get_user_service_web() -> Tuple[Optional[any], Optional[Credentials]]:
     """
     client_cfg = _client_cfg_from_secrets()
     redirect_uri = st.secrets["google_oauth"]["redirect_uri"]
+
+    # TEMP DEBUG — remove after it works
+    cid = st.secrets["google_oauth"]["client_id"]
+    st.warning(f"DEBUG OAuth → mode={st.secrets.get('app',{}).get('mode','?')}, "
+            f"client_id startswith: {cid[:12]}…, len={len(cid)}, "
+            f"redirect_uri='{redirect_uri}'")
 
     # If creds already in session, refresh if needed and return
     sess_creds: Optional[Credentials] = st.session_state.get("credentials")
