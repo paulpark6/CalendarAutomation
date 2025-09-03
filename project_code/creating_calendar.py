@@ -120,17 +120,45 @@ def get_user_default_timezone(creds: Credentials) -> str:
 def create_calendar(creds: Credentials, name: str, time_zone: Optional[str] = None) -> str:
     """
     Create a calendar with summary=name and explicit timeZone; return its ID.
+    Also sets calendar-level default reminders so events using useDefault=True
+    will get popup alerts at 2h, 1d, 3d, and 1w before start.
     """
     sess = _session(creds)
     tz = time_zone or get_user_default_timezone(creds)
-    payload = {"summary": name, "timeZone": tz}
+
+    # 1) Create the calendar
     r = sess.post(
         "https://www.googleapis.com/calendar/v3/calendars",
-        json=payload,
+        json={"summary": name, "timeZone": tz},
         timeout=30,
     )
     r.raise_for_status()
-    return (r.json() or {})["id"]
+    cal_id = (r.json() or {}).get("id")
+    if not cal_id:
+        raise RuntimeError("Calendar create returned no id.")
+
+    # 2) Set default reminders on the user's CalendarList entry
+    #    (affects events with reminders.useDefault = true)
+    default_reminders = [
+        {"method": "popup", "minutes": 120},     # 2 hours
+        {"method": "popup", "minutes": 1440},    # 1 day
+        {"method": "popup", "minutes": 4320},    # 3 days
+        {"method": "popup", "minutes": 10080},   # 1 week
+    ]
+    try:
+        pr = sess.patch(
+            f"https://www.googleapis.com/calendar/v3/users/me/calendarList/{cal_id}",
+            json={"defaultReminders": default_reminders},
+            timeout=30,
+        )
+        pr.raise_for_status()
+    except Exception as e:
+        # Don’t fail calendar creation if setting defaults hiccups; surface a soft warning if you want.
+        # st.warning(f"Calendar created, but default reminders not set: {e}")
+        pass
+
+    return cal_id
+
 
 
 def unsubscribe_calendar(creds: Credentials, calendar_id: str) -> None:
