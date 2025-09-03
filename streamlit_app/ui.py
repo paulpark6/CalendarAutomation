@@ -17,7 +17,7 @@ from google.auth.transport.requests import AuthorizedSession
 # External helpers you said exist in project_code/*
 from project_code import calendar_methods as cal
 from project_code import creating_calendar as create_mod
-
+DEFAULT_NAME = dt.date.today().strftime("My Calendar %Y-%m-%d")
 
 def _is_primary(cal_id: str) -> bool:
     for c in st.session_state.get("calendars", []):
@@ -36,10 +36,9 @@ def _primary_calendar_banner(service):
             "You’re targeting your **Primary** calendar. For bulk/testing, create and use a separate calendar.",
             icon="⚠️",
         )
-        default_name = dt.date.today().strftime("My Calendar %Y-%m-%d")
         c1, c2 = st.columns([0.7, 0.3])
         with c1:
-            new_name = st.text_input("New calendar name", value=default_name, key="warn_newcal_name")
+            new_name = st.text_input("New calendar name", value=DEFAULT_NAME, key="warn_newcal_name")
         with c2:
             if st.button("Create & switch", key="warn_create_switch"):
                 try:
@@ -605,7 +604,7 @@ def show_home(service):
         st.info("No calendars found. Use Event Builder to create one.")
 
     with st.expander("Create a new calendar"):
-        new_name = st.text_input("Calendar name", placeholder="My Automated Calendar")
+        new_name = st.text_input("Calendar name", placeholder=DEFAULT_NAME)
         if st.button("Create / ensure", key="ensure_calendar_btn"):
             try:
                 existing = _get_calendars_cached(service)
