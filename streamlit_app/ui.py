@@ -528,25 +528,13 @@ def _from_streamlit_editable(edited: pd.DataFrame, json_cols: list[str]) -> pd.D
 # ──────────────────────────────────────────────────────────────────────────────
 # Home
 
-def show_login_page():
-    st.title("LazyCal")
-    st.write("Sign in to connect your Google Calendar.")
-
-    # ❗️Only render the auth URL that get_user_service_web() put in session
-    auth_url = st.session_state.get("oauth_auth_url")
-    if auth_url:
-        st.link_button("Continue with Google", auth_url, use_container_width=True)
-    else:
-        st.info("Preparing sign-in… if this persists, refresh the page.")
-
-
-# def show_login_page(on_login=None, error_message=None):
-#     st.title("🔐 Please sign in with Google")
-#     if error_message:
-#         st.error(error_message)
-#     if st.button("Continue with Google", type="primary"):
-#         if on_login:
-#             st.button("Continue with Google", type="primary", on_click=on_login, use_container_width=True)
+def show_login_page(on_login=None, error_message=None):
+    st.title("🔐 Please sign in with Google")
+    if error_message:
+        st.error(error_message)
+    if st.button("Continue with Google", type="primary"):
+        if on_login:
+            st.button("Continue with Google", type="primary", on_click=on_login, use_container_width=True)
 
 
 def show_home(service):
