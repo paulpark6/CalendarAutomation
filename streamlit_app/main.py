@@ -74,8 +74,10 @@ def main():
 
     # --- Login gate ---
     if st.session_state.get("service") is None:
-        # Try to complete OAuth (this will also render the Google link if needed)
-        result = get_user_service()              # may be (service, creds) or (None, None)
+        # This call will EITHER draw the "Continue with Google" link
+        # or finish the token exchange and return (service, creds).
+        result = get_user_service()
+
         if isinstance(result, tuple) and len(result) == 2 and result[0] is not None:
             service, creds = result
             st.session_state["service"] = service
@@ -83,13 +85,11 @@ def main():
             st.session_state["user_email"] = get_authenticated_email(service, creds)
             _touch_activity()
             st.rerun()
-        else:
-            # Show any one-time notices, then render your login UI (no on_click auth)
-            if st.session_state.pop("logout_reason", None) == "timeout":
-                st.warning("You were logged out due to 2 hours of inactivity.")
-            ui.show_login_page()                 # <-- do NOT call on_login() here
-            return
-            
+
+        # Not signed in yet: do NOT render any other UI.
+        # The auth function already drew the Google link.
+        return
+
     # --- Logged-in flow ---
     service = st.session_state.service
 
