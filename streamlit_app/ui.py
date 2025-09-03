@@ -444,21 +444,8 @@ def show_login_page():
 
     auth_url = st.session_state["oauth_auth_url"]
 
-    st.markdown(
-        f"""
-        <a href="{auth_url}" target="_self" style="text-decoration:none;">
-          <div style="
-            width:100%;padding:12px 16px;border-radius:10px;
-            border:1px solid rgba(200,200,200,.3);
-            display:flex;justify-content:center;align-items:center;
-            font-weight:600;">
-            Continue with Google
-          </div>
-        </a>
-        """,
-        unsafe_allow_html=True,
-    )
-
+    st.link_button("Continue with Google", auth_url, use_container_width=True, type="primary")
+    st.caption("You will be redirected to Google to authorize access.")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Home
