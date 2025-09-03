@@ -1,81 +1,103 @@
 # project_code/auth.py
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any
 
-import streamlit as st
-from google_auth_oauthlib.flow import InstalledAppFlow, Flow
+import requests
+from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request, AuthorizedSession
 from googleapiclient.discovery import build
 
 # ---------------------------------------------------------------------
-# OAuth scopes & token storage
-# (You can later narrow to calendar.events + calendar.readonly)
+# OAuth scope (you can narrow later to calendar.events + calendar.readonly)
 # ---------------------------------------------------------------------
-SCOPES = ["https://www.googleapis.com/auth/calendar"]  # full Calendar scope
-TOKEN_PATH = Path("UserData/token.json")               # single cached token file
-TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
-from typing import Optional
 
-# --- Logout helpers -----------------------------------------------------------
-import requests
-
-def revoke_google_token(creds) -> None:
+# ---------------------------------------------------------------------
+# Cloud/Web OAuth helpers (NO Streamlit here)
+# UI is responsible for: reading secrets, managing session/query params,
+# rendering the login link, and storing creds in st.session_state.
+# ---------------------------------------------------------------------
+def web_authorization_url(client_id: str, client_secret: str, redirect_uri: str) -> tuple[str, str]:
     """
-    Best-effort revoke of the current access/refresh token with Google.
-    Safe to call even if token is already invalidated.
+    Build the Google OAuth authorization URL for the Web flow.
+    Returns (auth_url, state). Does not render UI and does not touch files.
     """
-    try:
-        token = getattr(creds, "token", None) or getattr(creds, "refresh_token", None)
-        if not token:
-            return
-        requests.post(
-            "https://oauth2.googleapis.com/revoke",
-            params={"token": token},
-            timeout=5,
-        )
-    except Exception:
-        pass  # ignore network errors; we'll still delete the cached token file
+    client_cfg = {
+        "web": {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "auth_uri":  "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": [redirect_uri],
+        }
+    }
+    flow = Flow.from_client_config(client_cfg, scopes=SCOPES, redirect_uri=redirect_uri)
+    auth_url, state = flow.authorization_url(
+        access_type="offline",
+        include_granted_scopes="true",
+        prompt="consent",
+    )
+    return auth_url, state
 
-def delete_token_file(token_path: Path = TOKEN_PATH) -> None:
-    """Remove the persisted token file from disk (if it exists)."""
-    try:
-        token_path.unlink(missing_ok=True)
-    except Exception:
-        pass
 
-def logout_and_delete_token(creds=None, token_path: Path = TOKEN_PATH) -> None:
+def web_exchange_code(client_id: str, client_secret: str, redirect_uri: str, code: str) -> Credentials:
     """
-    Full logout routine:
-    1) Revoke token with Google (best-effort)
-    2) Delete token.json from disk
+    Exchange the returned ?code=... for OAuth Credentials (Web flow).
+    Does not render UI and does not touch files.
     """
-    revoke_google_token(creds)
-    delete_token_file(token_path)
+    client_cfg = {
+        "web": {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "auth_uri":  "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": [redirect_uri],
+        }
+    }
+    flow = Flow.from_client_config(client_cfg, scopes=SCOPES, redirect_uri=redirect_uri)
+    flow.fetch_token(code=code)
+    return flow.credentials
+
+
+# ---------------------------------------------------------------------
+# Token/service utilities (pure; no Streamlit)
+# ---------------------------------------------------------------------
+def refresh_if_needed(creds: Credentials) -> Credentials:
+    """
+    Refresh the access token if expired and a refresh_token is available.
+    """
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+    return creds
+
+
+def build_calendar_service(creds: Credentials):
+    """
+    Build the Google Calendar discovery client.
+    """
+    return build("calendar", "v3", credentials=creds, cache_discovery=False)
 
 
 def get_authenticated_email(service, creds: Optional[Credentials] = None) -> Optional[str]:
     """
-    Returns the signed-in user's email. Tries the OAuth userinfo endpoint first,
-    then falls back to the primary calendar id.
+    Return the signed-in user's email.
+    Tries the OAuth userinfo endpoint first, then falls back to the primary calendar id.
     """
-    # Try OAuth userinfo (works for many tokens even without explicit userinfo scope)
+    # Prefer userinfo (works even without explicit userinfo scope in many cases)
     if creds is not None:
         try:
-            sess = AuthorizedSession(creds)
-            me = sess.get("https://www.googleapis.com/oauth2/v2/userinfo", timeout=10).json()
-            if isinstance(me, dict):
-                email = me.get("email")
-                if email:
-                    return email
+            me = AuthorizedSession(creds).get(
+                "https://www.googleapis.com/oauth2/v2/userinfo", timeout=10
+            ).json()
+            if isinstance(me, dict) and me.get("email"):
+                return me["email"]
         except Exception:
             pass
 
-    # Fallback via Calendar API: primary calendar id is the email
+    # Fallback via Calendar API: the 'primary' calendar id is the email
     try:
         data = service.calendarList().list(maxResults=50).execute()
         primary = next((c for c in data.get("items", []) if c.get("primary")), None)
@@ -84,133 +106,45 @@ def get_authenticated_email(service, creds: Optional[Credentials] = None) -> Opt
         return None
 
 
-
-# ---------------------------------------------------------------------
-# Local (desktop) OAuth flow — for development
-# ---------------------------------------------------------------------
-def _client_cfg_from_secrets() -> dict:
-    gi = st.secrets["google_oauth"]["client_id"]
-    gs = st.secrets["google_oauth"]["client_secret"]
-    ru = st.secrets["google_oauth"]["redirect_uri"]
-    return {
-        "web": {
-            "client_id": gi,
-            "project_id": "streamlit-app",
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "client_secret": gs,
-            "redirect_uris": [ru],
-        }
-    }
-
 def get_default_calendar_timezone(service, calendar_id: str = "primary") -> str:
-    """Return the timeZone of the specified calendar (default: primary)."""
+    """
+    Return the timeZone of the specified calendar (default: 'primary').
+    """
     try:
         cal = service.calendars().get(calendarId=calendar_id).execute()
         return cal.get("timeZone", "UTC")
     except Exception:
         return "UTC"
 
-def _installed_client_cfg_from_secrets() -> dict:
-    gi = st.secrets["google_oauth_installed"]["client_id"]
-    gs = st.secrets["google_oauth_installed"]["client_secret"]
-    return {
-        "installed": {
-            "client_id": gi,
-            "client_secret": gs,
-            "auth_uri":  "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-        }
-    }
-
-def get_user_service_local():
-    # TEMP DEBUG: confirm which client you're using
-    gi = st.secrets["google_oauth_installed"]["client_id"]
-    st.info(f"LOCAL DEBUG → Desktop client startswith: {gi[:12]}… len={len(gi)}")
-
-    flow = InstalledAppFlow.from_client_config(_installed_client_cfg_from_secrets(), SCOPES)
-    creds = flow.run_local_server(host="localhost", port=0, prompt="consent")
-    TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
-    TOKEN_PATH.write_text(creds.to_json())
-    service = build("calendar", "v3", credentials=creds, cache_discovery=False)
-    return service, creds
 
 # ---------------------------------------------------------------------
-# Web (Streamlit Cloud) OAuth flow — for production
+# Logout helpers (cloud-safe)
 # ---------------------------------------------------------------------
-def _one(x):
-    """Normalize Streamlit query param values (list|str|None) to a single value."""
-    if isinstance(x, list):
-        return x[0] if x else None
-    return x
-
-
-def get_user_service_web():
-    """Cloud-safe OAuth: renders the Google link when needed, completes code exchange when redirected back."""
-    client_cfg = _client_cfg_from_secrets()
-    redirect_uri = st.secrets["google_oauth"]["redirect_uri"]
-
-    # If creds already exist, refresh if needed and return
-    sess_creds: Optional[Credentials] = st.session_state.get("credentials")
-    if sess_creds:
-        try:
-            if sess_creds.expired and sess_creds.refresh_token:
-                sess_creds.refresh(Request())
-        except Exception:
-            pass
-        service = build("calendar", "v3", credentials=sess_creds, cache_discovery=False)
-        return service, sess_creds
-
-    # --- Read query params FIRST (avoid state churn on reruns) ---
-    params = st.query_params
-    def _one(x): return x[0] if isinstance(x, list) else x
-    code = _one(params.get("code"))
-    returned_state = _one(params.get("state"))
-    expected_state = st.session_state.get("oauth_state")  # may be None after a rerun
-
-    # If we have a code, complete the token exchange (be permissive about state)
-    if code:
-        try:
-            flow = Flow.from_client_config(client_cfg, scopes=SCOPES, redirect_uri=redirect_uri)
-            flow.fetch_token(code=code)
-            creds: Credentials = flow.credentials
-            st.session_state["credentials"] = creds
-            st.session_state["google_creds_json"] = creds.to_json()
-            # cleanup
-            st.session_state.pop("oauth_state", None)
-            st.session_state.pop("oauth_auth_url", None)
-            try:
-                st.query_params.clear()
-            except Exception:
-                pass
-            service = build("calendar", "v3", credentials=creds, cache_discovery=False)
-            return service, creds
-        except Exception:
-            # fall through and re-offer sign-in link
-            st.warning("Sign-in failed—please try again.")
-
-    # No code yet → ensure we have an auth URL and render the link
-    if "oauth_auth_url" not in st.session_state or "oauth_state" not in st.session_state:
-        flow_tmp = Flow.from_client_config(client_cfg, scopes=SCOPES, redirect_uri=redirect_uri)
-        auth_url, state = flow_tmp.authorization_url(
-            access_type="offline",
-            include_granted_scopes="true",
-            prompt="consent",
+def revoke_google_token(creds: Optional[Credentials]) -> bool:
+    """
+    Best-effort revoke of the current token with Google.
+    Tries refresh_token first (stronger invalidation), falls back to access token.
+    Returns True if a revoke request was attempted, False if no token was present.
+    """
+    token = None
+    if creds is not None:
+        token = getattr(creds, "refresh_token", None) or getattr(creds, "token", None)
+    if not token:
+        return False
+    try:
+        requests.post(
+            "https://oauth2.googleapis.com/revoke",
+            params={"token": token},
+            timeout=5,
         )
-        st.session_state["oauth_auth_url"] = auth_url
-        st.session_state["oauth_state"] = state
-
-    st.link_button("Continue with Google", st.session_state["oauth_auth_url"], use_container_width=True)
-    return None, None
+    except Exception:
+        pass  # best-effort only
+    return True
 
 
-
-
-
-
-# ---------------------------------------------------------------------
-# Dispatcher — choose dev or cloud flow based on secrets
-# ---------------------------------------------------------------------
-def get_user_service():
-    mode = st.secrets.get("app", {}).get("mode", "cloud")
-    return get_user_service_local() if mode == "dev" else get_user_service_web()
+def logout_and_delete_token(creds: Optional[Credentials]) -> None:
+    """
+    Cloud logout: revoke the token with Google, then let the UI clear session.
+    (No local file deletion in cloud/MVP.)
+    """
+    revoke_google_token(creds)
