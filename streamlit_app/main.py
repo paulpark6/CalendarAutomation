@@ -74,21 +74,9 @@ def main():
 
     # --- Login gate ---
     if st.session_state.get("service") is None:
-        # This call will EITHER draw the "Continue with Google" link
-        # or finish the token exchange and return (service, creds).
-        result = get_user_service()
-
-        if isinstance(result, tuple) and len(result) == 2 and result[0] is not None:
-            service, creds = result
-            st.session_state["service"] = service
-            st.session_state["credentials"] = creds
-            st.session_state["user_email"] = get_authenticated_email(service, creds)
-            _touch_activity()
-            st.rerun()
-
-        # Not signed in yet: do NOT render any other UI.
-        # The auth function already drew the Google link.
+        ui.show_login_page()   # <-- this will call get_user_service() and render the link
         return
+
 
     # --- Logged-in flow ---
     service = st.session_state.service

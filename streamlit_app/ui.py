@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional
 
 import pandas as pd
 import streamlit as st
+from project_code.auth import get_user_service, get_authenticated_email
 
 from pathlib import Path
 from google.oauth2.credentials import Credentials
@@ -528,13 +529,28 @@ def _from_streamlit_editable(edited: pd.DataFrame, json_cols: list[str]) -> pd.D
 # ──────────────────────────────────────────────────────────────────────────────
 # Home
 
-def show_login_page(on_login=None, error_message=None):
-    st.title("🔐 Please sign in with Google")
-    if error_message:
-        st.error(error_message)
-    if st.button("Continue with Google", type="primary"):
-        if on_login:
-            st.button("Continue with Google", type="primary", on_click=on_login, use_container_width=True)
+def show_login_page():
+    st.title("LazyCal")
+    st.write("Sign in to connect your Google Calendar.")
+
+    # 1) Try to run/complete OAuth. This function will ALSO draw the link when needed.
+    result = get_user_service()  # may render the Google link, or return (service, creds)
+
+    # 2) If we got creds, finish login and bounce into the app
+    if isinstance(result, tuple) and len(result) == 2 and result[0] is not None:
+        service, creds = result
+        st.session_state["service"] = service
+        st.session_state["credentials"] = creds
+        st.session_state["user_email"] = get_authenticated_email(service, creds)
+        st.rerun()
+        return
+
+    # 3) Safety fallback: if the auth function didn’t draw the link yet, render it ourselves
+    auth_url = st.session_state.get("oauth_auth_url")
+    if auth_url:
+        st.link_button("Continue with Google", auth_url, use_container_width=True)
+    else:
+        st.info("Preparing sign-in… if this persists, reload the page.")
 
 
 def show_home(service):
