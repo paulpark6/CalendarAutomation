@@ -812,7 +812,7 @@ def show_event_builder(service):
     )
 
     # Optional: show a read-only label so users see where blanks will go
-    display_df.insert(0, "target_calendar", f"{_calendar_name_for_id(selected_id)} · {selected_id}")
+    display_df.insert(0, "target_calendar", f"{_calendar_name_for_id(selected_id)}")
 
     editable_df, json_cols = _to_streamlit_editable(display_df)
     edited = st.data_editor(
