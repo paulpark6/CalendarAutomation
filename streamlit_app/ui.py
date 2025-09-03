@@ -534,7 +534,7 @@ def show_login_page(on_login=None, error_message=None):
         st.error(error_message)
     if st.button("Continue with Google", type="primary"):
         if on_login:
-            on_login()
+            st.button("Continue with Google", type="primary", on_click=on_login, use_container_width=True)
 
 
 def show_home(service):
