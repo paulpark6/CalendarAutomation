@@ -798,47 +798,72 @@ def show_event_builder(service):
     st.divider()
     st.subheader("Preview & edit")
 
-    if st.session_state["parsed_events_df"].empty:
-        st.caption("No records loaded yet.")
-    else:
-        # Display copy with internal columns hidden
-        display_df = st.session_state["parsed_events_df"].copy()
-        for col in ["service", "google_calendar_id", "calendar_name", "timezone", "user_email", "calendar_id"]:
-            if col in display_df.columns:
-                display_df = display_df.drop(columns=[col])
-        selected_id = st.session_state.get("active_calendar", "primary")
-        st.caption(
-            f"Selected calendar (default): `{_calendar_name_for_id(selected_id)}` · `{selected_id}`  \n"
-            f"Time zone: `{_calendar_timezone_for_id(selected_id) or '—'}`"
-        )
+    # --- Preview & edit (outside tabs) ---
+    # 1) Keep calendar_id/timezone in the DF; hide only true internals
+    display_df = st.session_state["parsed_events_df"].copy()
+    for col in ["service", "google_calendar_id", "calendar_name", "user_email"]:  # CHANGED: removed 'timezone', 'calendar_id'
+        if col in display_df.columns:
+            display_df = display_df.drop(columns=[col])
 
-        # Streamlit-only editable grid
-        editable_df, json_cols = _to_streamlit_editable(display_df)
-        edited = st.data_editor(
-            editable_df,
-            use_container_width=True,
-            height=360,
-            num_rows="dynamic",
-            key="evb_editor"
-        )
-        edited = _from_streamlit_editable(edited, json_cols)
+    selected_id = st.session_state.get("active_calendar", "primary")
+    st.caption(
+        f"Selected calendar: `{_calendar_name_for_id(selected_id)}` · `{selected_id}`  \n"
+        f"Time zone: `{_calendar_timezone_for_id(selected_id) or '—'}`"
+    )
 
-        # Sync back ONLY the editable columns
-        base_df = st.session_state["parsed_events_df"]
-        for col in edited.columns:
-            if col in base_df.columns:
-                base_df[col] = edited[col]
-        st.session_state["parsed_events_df"] = base_df
+    # Optional: show a read-only label so users see where blanks will go
+    display_df.insert(0, "target_calendar", f"{_calendar_name_for_id(selected_id)} · {selected_id}")
 
-        # Actions
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("🚀 Create events", key="evb_create_events"):
-                df_to_create = st.session_state["parsed_events_df"].copy()
-                _create_events_batch(service, df_to_create)
-        with c2:
-            if st.button("🗑️ Undo last import", key="evb_undo"):
-                _undo_last_batch(service)
+    editable_df, json_cols = _to_streamlit_editable(display_df)
+    edited = st.data_editor(
+        editable_df,
+        use_container_width=True,
+        height=360,
+        num_rows="dynamic",
+        key="evb_editor",
+        column_config={
+            "target_calendar": st.column_config.TextColumn(disabled=True),
+            "calendar_id":     st.column_config.TextColumn(disabled=True),  # CHANGED
+            "timezone":        st.column_config.TextColumn(disabled=True),  # CHANGED
+        },
+    )
+    edited = _from_streamlit_editable(edited, json_cols)
+
+    # Sync back ONLY editable columns (unchanged)
+    base_df = st.session_state["parsed_events_df"]
+    for col in edited.columns:
+        if col in base_df.columns:
+            base_df[col] = edited[col]
+    st.session_state["parsed_events_df"] = base_df
+
+    # --- Actions ---
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("🚀 Create events", key="evb_create_events"):
+            df_to_create = st.session_state["parsed_events_df"].copy()
+
+            # 2) (Optional) coalesce blank calendar_id to the active selection
+            if "calendar_id" not in df_to_create.columns:
+                df_to_create["calendar_id"] = ""
+            mask_cal = df_to_create["calendar_id"].isna() | (df_to_create["calendar_id"].astype(str).str.strip() == "")
+            df_to_create.loc[mask_cal, "calendar_id"] = selected_id
+
+            # 3) DO NOT fill timezone here; let _create_events_batch apply defaults per calendar   # CHANGED
+            # (Your _create_events_batch uses _apply_default_tz_for_timed + cal_tz)
+
+            # (Optional) name for logs/UX
+            df_to_create["calendar_name"] = _calendar_name_for_id(selected_id)
+
+            # If downstream expects google_calendar_id, set it explicitly
+            if "google_calendar_id" not in df_to_create.columns:
+                df_to_create["google_calendar_id"] = df_to_create["calendar_id"]
+
+            _create_events_batch(service, df_to_create)
+
+    with c2:
+        if st.button("🗑️ Undo last import", key="evb_undo"):
+            _undo_last_batch(service)
+
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -879,7 +904,7 @@ def _create_events_batch(service, df: pd.DataFrame):
 
     for cal_id, rows_for_cal in groups.items():
         # Default TZ for TIMED rows to THIS calendar's tz (prevents UTC fallback)
-        cal_tz = _calendar_timezone_for_id(cal_id) or create_mod.get_user_default_timezone(creds) or "UTC"
+        cal_tz = _calendar_timezone_for_id(cal_id) or create_mod.get_user_default_timezone(creds)
         rows_for_cal = _apply_default_tz_for_timed(rows_for_cal, cal_tz)
 
         created_refs: List[Dict[str, Any]] = []
