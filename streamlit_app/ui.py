@@ -16,6 +16,52 @@ from project_code import creating_calendar as create_mod
 
 DEFAULT_NAME = dt.date.today().strftime("My Calendar %Y-%m-%d")
 
+# data preview
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Data editor helpers (Streamlit-only)
+# These helpers let st.data_editor handle list/dict cells by temporarily
+# serializing them to JSON strings and then parsing them back after editing.
+
+def _to_streamlit_editable(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """
+    Return a copy of df where any list/dict cells are converted to JSON strings,
+    plus a list of the columns we transformed so we can parse them back later.
+    """
+    editable = df.copy()
+    json_cols: list[str] = []
+    for col in editable.columns:
+        # If *any* value in the column is a list/dict, treat the whole column as JSON-able
+        if editable[col].map(lambda v: isinstance(v, (list, dict))).any():
+            json_cols.append(col)
+            editable[col] = editable[col].map(
+                lambda v: json.dumps(v, ensure_ascii=False) if isinstance(v, (list, dict)) else v
+            )
+    return editable, json_cols
+
+
+def _from_streamlit_editable(edited: pd.DataFrame, json_cols: list[str]) -> pd.DataFrame:
+    """
+    Parse back the JSON strings created by _to_streamlit_editable for the
+    specified columns. Non-JSON strings are left as-is.
+    """
+    parsed = edited.copy()
+    for col in json_cols:
+        if col in parsed.columns:
+            def _maybe_json(x):
+                if isinstance(x, str):
+                    s = x.strip()
+                    # quick shape check: looks like a JSON list or dict
+                    if (s.startswith('[') and s.endswith(']')) or (s.startswith('{') and s.endswith('}')):
+                        try:
+                            return json.loads(s)
+                        except Exception:
+                            return x
+                return x
+            parsed[col] = parsed[col].map(_maybe_json)
+    return parsed
+
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Small guard to enforce session credentials for every Google call
