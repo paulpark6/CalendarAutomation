@@ -544,14 +544,6 @@ def show_login_page():
         st.rerun()
         return
 
-    # 3) Safety fallback: if the auth function didn’t draw the link yet, render it ourselves
-    auth_url = st.session_state.get("oauth_auth_url")
-    if auth_url:
-        st.link_button("Continue with Google", auth_url, use_container_width=True)
-    else:
-        st.info("Preparing sign-in… if this persists, reload the page.")
-
-
 def show_home(service):
     _init_session_defaults()
 
@@ -742,7 +734,7 @@ def show_event_builder(service):
 
         new_name = st.text_input(
             "Create new calendar (optional)",
-            placeholder="My Automated Calendar",
+            placeholder= DEFAULT_NAME,
             key="evb_new_cal_name",
         )
         if st.button("Create / ensure calendar", key="evb_create_cal_btn"):
