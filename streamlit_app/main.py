@@ -52,12 +52,15 @@ def _maybe_timeout_logout():
         _do_logout("timeout")
 
 def ensure_auth():
-    service, creds = get_user_service()   # renders the Google link if not signed in
-    if not service:
-        st.stop()                         # pause until the OAuth redirect returns
+    result = get_user_service()          # may be (service, creds) OR None
+    # If result isn't a (service, creds) tuple or service is None, pause
+    if not isinstance(result, tuple) or len(result) != 2 or result[0] is None:
+        st.stop()                        # wait for redirect or user click
+    service, creds = result
     st.session_state["service"] = service
     st.session_state["credentials"] = creds
     return service, creds
+
 
 def main():
     st.set_page_config(page_title="Calendar Automation", page_icon="📅", layout="wide")
