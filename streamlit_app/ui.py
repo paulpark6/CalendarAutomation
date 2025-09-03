@@ -276,7 +276,7 @@ def _render_manage_calendars_ui(service):
 
 def _refresh_calendars(service):
     """
-    Pull the user’s calendars using project_code (no Streamlit there),
+    Pull the user's calendars using project_code (no Streamlit there),
     then cache them in session for UI use.
     """
     creds = _require_creds()
@@ -524,6 +524,7 @@ def show_home(service):
 
     st.divider()
     st.subheader("Your calendars")
+    _sync_preview_to_active_calendar()
     calendars = _get_calendars_cached(service)
     if calendars:
         ids = [c["id"] for c in calendars]
@@ -556,6 +557,7 @@ def show_home(service):
                     tz = create_mod.get_user_default_timezone(creds)
                     cal_id = create_mod.create_calendar(creds, new_name, time_zone=tz)
                 _refresh_calendars(service)
+                _sync_preview_to_active_calendar()
                 st.session_state["active_calendar"] = cal_id
                 _success(f"Calendar ready: `{new_name}` · `{cal_id}`")
             except Exception as e:
@@ -672,9 +674,9 @@ def show_event_builder(service):
             key="evb_cal_select",
         )
         st.session_state["active_calendar"] = ids[choice]
+        _sync_preview_to_active_calendar()
         _primary_calendar_banner(service)
         _render_manage_calendars_ui(service)
-        _sync_preview_to_active_calendar()
 
         new_name = st.text_input(
             "Create new calendar (optional)",
