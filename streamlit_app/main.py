@@ -73,10 +73,10 @@ def main():
     st.session_state.setdefault("last_activity_ts", None)
 
     # --- Login gate ---
+    # --- Login gate ---
     if st.session_state.get("service") is None:
-        ui.show_login_page()   # <-- this will call get_user_service() and render the link
-        return
-
+        ui.show_login_page()   # <- this function you pasted runs auth & renders the link
+        st.stop()  
 
     # --- Logged-in flow ---
     service = st.session_state.service

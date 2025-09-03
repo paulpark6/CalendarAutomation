@@ -146,10 +146,11 @@ def _one(x):
 
 
 def get_user_service_web():
+    """Cloud-safe OAuth: renders the Google link when needed, completes code exchange when redirected back."""
     client_cfg = _client_cfg_from_secrets()
     redirect_uri = st.secrets["google_oauth"]["redirect_uri"]
 
-    # If creds already in session, refresh if needed and return
+    # If creds already exist, refresh if needed and return
     sess_creds: Optional[Credentials] = st.session_state.get("credentials")
     if sess_creds:
         try:
@@ -160,34 +161,48 @@ def get_user_service_web():
         service = build("calendar", "v3", credentials=sess_creds, cache_discovery=False)
         return service, sess_creds
 
-    # --- IMPORTANT: read query params BEFORE generating a new state ---
+    # --- Read query params FIRST (avoid state churn on reruns) ---
     params = st.query_params
+    def _one(x): return x[0] if isinstance(x, list) else x
     code = _one(params.get("code"))
     returned_state = _one(params.get("state"))
-    expected_state = st.session_state.get("oauth_state")  # may be None if session was new
+    expected_state = st.session_state.get("oauth_state")  # may be None after a rerun
 
-       # If Google redirected back with a code, try to complete the flow now
+    # If we have a code, complete the token exchange (be permissive about state)
     if code:
-        # If state mismatched, continue anyway (Streamlit reruns can refresh state)
-        if expected_state and returned_state != expected_state:
-            st.warning("Session refreshed during sign-in; continuing.")
-
-        flow = Flow.from_client_config(client_cfg, scopes=SCOPES, redirect_uri=redirect_uri)
-        flow.fetch_token(code=code)
-        creds: Credentials = flow.credentials
-        st.session_state["credentials"] = creds
-        st.session_state["google_creds_json"] = creds.to_json()
-
-        # clean up params & stored state
-        st.session_state.pop("oauth_state", None)
-        st.session_state.pop("oauth_auth_url", None)
         try:
-            st.query_params.clear()
+            flow = Flow.from_client_config(client_cfg, scopes=SCOPES, redirect_uri=redirect_uri)
+            flow.fetch_token(code=code)
+            creds: Credentials = flow.credentials
+            st.session_state["credentials"] = creds
+            st.session_state["google_creds_json"] = creds.to_json()
+            # cleanup
+            st.session_state.pop("oauth_state", None)
+            st.session_state.pop("oauth_auth_url", None)
+            try:
+                st.query_params.clear()
+            except Exception:
+                pass
+            service = build("calendar", "v3", credentials=creds, cache_discovery=False)
+            return service, creds
         except Exception:
-            pass
+            # fall through and re-offer sign-in link
+            st.warning("Sign-in failed—please try again.")
 
-        service = build("calendar", "v3", credentials=creds, cache_discovery=False)
-        return service, creds
+    # No code yet → ensure we have an auth URL and render the link
+    if "oauth_auth_url" not in st.session_state or "oauth_state" not in st.session_state:
+        flow_tmp = Flow.from_client_config(client_cfg, scopes=SCOPES, redirect_uri=redirect_uri)
+        auth_url, state = flow_tmp.authorization_url(
+            access_type="offline",
+            include_granted_scopes="true",
+            prompt="consent",
+        )
+        st.session_state["oauth_auth_url"] = auth_url
+        st.session_state["oauth_state"] = state
+
+    st.link_button("Continue with Google", st.session_state["oauth_auth_url"], use_container_width=True)
+    return None, None
+
 
 
 
