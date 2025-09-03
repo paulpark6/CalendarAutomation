@@ -110,6 +110,48 @@ def _role_for_calendar(cal_id: str) -> str:
     return ""
 
 
+# sync calendar
+def _sync_preview_to_active_calendar():
+    """
+    If the user switches the active calendar, keep the Preview rows consistent:
+    - strip any row-level calendar hints so the selected calendar is used
+    - for TIMED rows (have event_time) with a blank timezone, default to the
+      newly selected calendar's timezone
+    """
+    active_id = st.session_state.get("active_calendar")
+    if not active_id:
+        return
+
+    prev_id = st.session_state.get("_prev_active_calendar")
+    if prev_id == active_id:
+        return  # nothing changed
+
+    df = st.session_state.get("parsed_events_df")
+    if df is None or df.empty:
+        st.session_state["_prev_active_calendar"] = active_id
+        st.session_state["_prev_active_calendar_tz"] = _calendar_timezone_for_id(active_id)
+        return
+
+    # 1) remove any per-row calendar hints so bulk creation uses the selected calendar
+    for col in ("calendar_id", "google_calendar_id", "calendar_name"):
+        if col in df.columns:
+            df = df.drop(columns=[col])
+
+    # 2) for timed rows with no tz, default tz to the new calendar's tz
+    cal_tz = _calendar_timezone_for_id(active_id)
+    if cal_tz and "event_time" in df.columns:
+        if "timezone" not in df.columns:
+            df["timezone"] = ""
+        timed_mask = df["event_time"].fillna("").astype(str).str.strip() != ""
+        blank_tz   = df["timezone"].fillna("").astype(str).str.strip() == ""
+        df.loc[timed_mask & blank_tz, "timezone"] = cal_tz  # all-day rows remain tz-blank
+
+    st.session_state["parsed_events_df"] = df
+    st.session_state["_prev_active_calendar"] = active_id
+    st.session_state["_prev_active_calendar_tz"] = cal_tz
+
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Session state + notifications
 
