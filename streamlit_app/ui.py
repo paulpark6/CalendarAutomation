@@ -36,7 +36,7 @@ def _primary_calendar_banner(service):
             "You’re targeting your **Primary** calendar. For bulk/testing, create and use a separate calendar.",
             icon="⚠️",
         )
-        default_name = dt.date.today().strftime("MyApp Imports %Y-%m-%d")
+        default_name = dt.date.today().strftime("My Calendar %Y-%m-%d")
         c1, c2 = st.columns([0.7, 0.3])
         with c1:
             new_name = st.text_input("New calendar name", value=default_name, key="warn_newcal_name")
