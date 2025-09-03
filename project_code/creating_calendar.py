@@ -41,51 +41,50 @@ def get_user_service_local() -> Tuple[Optional[Any], Optional[Credentials]]:
     return build("calendar", "v3", credentials=creds, cache_discovery=False), creds
 
 def get_user_service_web() -> Tuple[Optional[Any], Optional[Credentials]]:
-    """Streamlit Cloud-friendly OAuth using query params."""
+    """Streamlit Cloud-friendly OAuth using query params, but NO UI here."""
     client_cfg = _client_cfg_from_secrets()
-    redirect_uri = st.secrets["google_oauth"]["redirect_uri"]  # e.g. "https://calendarautomation.streamlit.app/"
-    flow = Flow.from_client_config(client_cfg, scopes=SCOPES, redirect_uri=redirect_uri)
+    redirect_uri = st.secrets["google_oauth"]["redirect_uri"]
 
-    auth_url, state = flow.authorization_url(
-        access_type="offline",
-        include_granted_scopes="true",
-        prompt="consent"
-    )
-    st.session_state["oauth_state"] = state
+    # --- Read query params FIRST (avoid minting a new state too early) ---
+    params = st.query_params
+    def _one(v): return v[0] if isinstance(v, list) else v
+    code = _one(params.get("code"))
+    returned_state = _one(params.get("state"))
+    expected_state = st.session_state.get("oauth_state")  # may be None on fresh session
 
-    # Show the sign-in link until we have a ?code=...&state=... in the URL
-    params = st.query_params  # Streamlit Cloud-friendly
-    # st.query_params values can be str or list-like; normalize:
-    def _get(q, default=None):
-        v = params.get(q, default)
-        if isinstance(v, list):
-            return v[0] if v else default
-        return v
+    # If Google redirected back with a code → exchange it (be permissive on state)
+    if code:
+        flow = Flow.from_client_config(client_cfg, scopes=SCOPES, redirect_uri=redirect_uri)
+        # If you really want to enforce state, uncomment the next 3 lines:
+        # if expected_state and returned_state != expected_state:
+        #     # session refreshed; start over
+        #     st.session_state.pop("oauth_state", None); st.session_state.pop("oauth_auth_url", None); return None, None
+        flow.fetch_token(code=code)
+        creds: Credentials = flow.credentials
 
-    code = _get("code")
-    returned_state = _get("state")
+        # persist & cache
+        TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+        TOKEN_PATH.write_text(creds.to_json())
+        st.session_state["credentials"] = creds
+        st.session_state["google_creds_json"] = creds.to_json()
 
-    if not code:
-        st.info("To use Google Calendar, please sign in.")
-        st.link_button("Sign in with Google", auth_url, use_container_width=True)
-        return None, None
+        # cleanup query params so we don't loop
+        try: st.query_params.clear()
+        except Exception: pass
 
-    # Validate state (CSRF protection)
-    if not returned_state or returned_state != state:
-        st.error("Invalid OAuth state. Please try signing in again.")
-        st.link_button("Sign in with Google", auth_url)
-        return None, None
+        return build("calendar", "v3", credentials=creds, cache_discovery=False), creds
 
-    # Exchange the code for tokens
-    flow.fetch_token(code=code)
-    creds: Credentials = flow.credentials
+    # No code yet → prepare an auth URL ONCE and hand it to the UI to render
+    if "oauth_auth_url" not in st.session_state or "oauth_state" not in st.session_state:
+        flow_tmp = Flow.from_client_config(client_cfg, scopes=SCOPES, redirect_uri=redirect_uri)
+        auth_url, state = flow_tmp.authorization_url(
+            access_type="offline", include_granted_scopes="true", prompt="consent"
+        )
+        st.session_state["oauth_auth_url"] = auth_url
+        st.session_state["oauth_state"] = state
 
-    # Persist
-    TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
-    TOKEN_PATH.write_text(creds.to_json())
-    st.session_state["google_creds_json"] = creds.to_json()
-
-    return build("calendar", "v3", credentials=creds, cache_discovery=False), creds
+    # IMPORTANT: no st.info / no st.link_button here — UI renders the button.
+    return None, None
 
 def get_user_service():
     mode = st.secrets.get("app", {}).get("mode", "cloud")

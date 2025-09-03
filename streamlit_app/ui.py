@@ -530,8 +530,8 @@ def _from_streamlit_editable(edited: pd.DataFrame, json_cols: list[str]) -> pd.D
 # Home
 
 def show_login_page():
-    st.title("LazyCal")
-    st.write("Sign in to connect your Google Calendar.")
+    st.title("😪 LazyCal 🗓️")
+    st.write("🔐 Sign in to connect your Google Calendar.")
 
     # 1) Try to run/complete OAuth. This function will ALSO draw the link when needed.
     result = get_user_service()  # may render the Google link, or return (service, creds)
