@@ -160,6 +160,17 @@ def create_calendar(creds: Credentials, name: str, time_zone: Optional[str] = No
     return cal_id
 
 
+def dict_to_rrule_list(rec: dict) -> list[str]:
+    # Minimal example — adapt for more fields if needed
+    parts = [f"FREQ={rec['freq'].upper()}"]
+    if 'byDay' in rec:
+        parts.append(f"BYDAY={','.join(rec['byDay'])}")
+    if 'until' in rec:
+        # Format the UNTIL in UTC RFC5545 form
+        until_date = rec['until']  # expected "YYYY-MM-DD"
+        parts.append(f"UNTIL={until_date.replace('-', '')}T235959Z")
+    return [f"RRULE:{';'.join(parts)}"]
+
 
 def unsubscribe_calendar(creds: Credentials, calendar_id: str) -> None:
     """
@@ -235,7 +246,7 @@ def create_single_event(
 
     # Recurrence (single RRULE string)
     if recurrence and isinstance(recurrence, str) and recurrence.strip():
-        body["recurrence"] = [recurrence.strip()]
+        body["recurrence"] = dict_to_rrule_list(recurrence)
 
     # All-day vs timed
     if not (event_time or "").strip():
