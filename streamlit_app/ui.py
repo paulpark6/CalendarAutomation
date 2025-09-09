@@ -532,7 +532,7 @@ def show_login_page():
 
     auth_url = st.session_state["oauth_auth_url"]
 
-    st.link_button("Continue with Google", auth_url, use_container_width=True, type="primary")
+    st.link_button("Continue with Google", auth_url, width='stretch', type="primary")
     st.caption("You will be redirected to Google to authorize access.")
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -616,7 +616,7 @@ def show_home(service):
         if df.empty:
             st.caption("No upcoming events.")
         else:
-            st.dataframe(df, use_container_width=True, height=360)
+            st.dataframe(df, width='stretch', height=360)
             st.caption("Tip: delete-on-hover will be added later.")
     except Exception as e:
         _error(f"Failed to load events: {e}")
@@ -817,7 +817,7 @@ def show_event_builder(service):
     editable_df, json_cols = _to_streamlit_editable(display_df)
     edited = st.data_editor(
         editable_df,
-        use_container_width=True,
+        width='stretch',
         height=360,
         num_rows="dynamic",
         key="evb_editor",
