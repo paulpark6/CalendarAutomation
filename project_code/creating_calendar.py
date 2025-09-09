@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import List, Dict, Any, Optional
+from typing import Any, List, Dict, Optional, Union
 
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials
@@ -200,7 +200,7 @@ def create_single_event(
     notifications: List[Any],
     invitees: List[str],
     location: str,
-    recurrence: Optional[str],
+    recurrence: Union[None, str, List[str], Dict[str, Any]],  # <-- accept more shapes
     user_email: str,
     send_updates: str = "none",
 ) -> Dict[str, Any]:
@@ -211,13 +211,13 @@ def create_single_event(
       If end_time is blank, default to +60 minutes.
     - notifications: if a list of ints -> popup overrides; if dicts -> pass as-is.
     """
-    # Build attendees
+
+    # -- attendees
     attendees = [{"email": a} for a in (invitees or []) if isinstance(a, str) and a.strip()]
 
-    # Build reminders
+    # -- reminders
     overrides: List[Dict[str, Any]] = []
     if notifications:
-        # Support list[int] or list[dict]
         for n in notifications:
             if isinstance(n, int):
                 overrides.append({"method": "popup", "minutes": int(n)})
@@ -233,30 +233,78 @@ def create_single_event(
         "attendees": attendees or [],
     }
 
-    # Recurrence (single RRULE string)
-    if recurrence and isinstance(recurrence, str) and recurrence.strip():
-        body["recurrence"] = [recurrence.strip()]
+    # ------ NEW: recurrence normalizer ------
+    def _to_rrule_list(rec: Union[None, str, List[str], Dict[str, Any]], *, is_all_day: bool) -> Optional[List[str]]:
+        if not rec:
+            return None
+        if isinstance(rec, list) and all(isinstance(x, str) for x in rec):
+            return rec  # already correct shape
+        if isinstance(rec, str):
+            r = rec.strip()
+            if not r:
+                return None
+            return [r if r.upper().startswith("RRULE:") else f"RRULE:{r}"]
+        if isinstance(rec, dict):
+            parts: List[str] = []
+            freq = rec.get("freq")
+            if not freq:
+                return None
+            parts.append(f"FREQ={freq.upper()}")
 
-    # All-day vs timed
-    if not (event_time or "").strip():
-        # All-day: use date only. Google treats end.date as exclusive (+1 day) internally.
+            interval = rec.get("interval")
+            if interval:
+                parts.append(f"INTERVAL={int(interval)}")
+
+            byday = rec.get("byDay") or rec.get("byday")
+            if byday:
+                parts.append(f"BYDAY={','.join(byday)}")
+
+            if rec.get("byMonth"):
+                parts.append(f"BYMONTH={','.join(str(m) for m in rec['byMonth'])}")
+            if rec.get("byMonthDay"):
+                parts.append(f"BYMONTHDAY={','.join(str(d) for d in rec['byMonthDay'])}")
+            if rec.get("bySetPos"):
+                parts.append(f"BYSETPOS={','.join(str(p) for p in rec['bySetPos'])}")
+
+            if rec.get("count"):
+                parts.append(f"COUNT={int(rec['count'])}")
+            else:
+                u = rec.get("until")
+                if u:
+                    # accept YYYY-MM-DD; normalize to RFC 5545, matching DTSTART type
+                    if isinstance(u, str) and len(u) == 10 and u[4] == "-" and u[7] == "-":
+                        y, m, d = u.split("-")
+                        parts.append(f"UNTIL={y}{m}{d}" if is_all_day else f"UNTIL={y}{m}{d}T235959Z")
+                    else:
+                        # fallback: strip separators if someone passed an RFC-ish stamp
+                        us = str(u).replace("-", "").replace(":", "")
+                        parts.append(f"UNTIL={us}")
+            return [f"RRULE:{';'.join(parts)}"]
+        return None
+    # ---------------------------------------
+
+    # -- all-day vs timed
+    is_all_day = not (event_time or "").strip()
+    if is_all_day:
         body["start"] = {"date": event_date}
         body["end"] = {"date": end_date or event_date}
     else:
-        # Timed event: need dateTime + timeZone
         def _hhmm_to_dt(d: str, t: str) -> dt.datetime:
             hh, mm = (t.split(":") + ["0"])[:2]
             return dt.datetime.strptime(f"{d} {hh}:{mm}", "%Y-%m-%d %H:%M")
-
         start_dt = _hhmm_to_dt(event_date, event_time)
         if (end_time or "").strip():
             end_dt = _hhmm_to_dt(end_date or event_date, end_time)
         else:
-            end_dt = start_dt + dt.timedelta(minutes=60)  # default 60 minutes
-
-        # Keep naive ISO; Calendar API accepts it with explicit timeZone
+            end_dt = start_dt + dt.timedelta(minutes=60)
         body["start"] = {"dateTime": start_dt.isoformat(), "timeZone": timezone or "UTC"}
         body["end"]   = {"dateTime": end_dt.isoformat(),   "timeZone": timezone or "UTC"}
+
+    # ------ CHANGED: set recurrence using the normalizer ------
+    rlist = _to_rrule_list(recurrence, is_all_day=is_all_day)
+    if rlist:
+        body["recurrence"] = rlist
+    # ----------------------------------------------------------
 
     created = service.events().insert(
         calendarId=calendar_id,
