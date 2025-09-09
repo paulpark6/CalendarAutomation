@@ -1,7 +1,7 @@
 import time
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
-
+from google.auth.transport.requests import AuthorizedSession
 # Only keep what we actually use now.
 from project_code.auth import logout_and_delete_token
 import streamlit_app.ui as ui
@@ -80,6 +80,14 @@ def main():
 
     # --- Logged-in flow ---
     service = st.session_state.service
+
+    creds = getattr(service._http, "credentials", None)
+    if creds:
+        me = AuthorizedSession(creds).get("https://www.googleapis.com/oauth2/v2/userinfo", timeout=5).json()
+        st.write("Authenticated as:", me.get("email"))
+    else:
+        st.error("Service has no credentials attached!")
+
 
     # Seed the idle timer on first page after login
     if st.session_state.get("last_activity_ts") is None:

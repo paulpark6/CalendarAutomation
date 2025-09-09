@@ -61,6 +61,11 @@ def web_exchange_code(client_id: str, client_secret: str, redirect_uri: str, cod
     flow.fetch_token(code=code)
     return flow.credentials
 
+def build_calendar_service(creds):
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+    return build("calendar", "v3", credentials=creds, cache_discovery=False)
+
 
 # ---------------------------------------------------------------------
 # Token/service utilities (pure; no Streamlit)
@@ -72,13 +77,6 @@ def refresh_if_needed(creds: Credentials) -> Credentials:
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
     return creds
-
-
-def build_calendar_service(creds: Credentials):
-    """
-    Build the Google Calendar discovery client.
-    """
-    return build("calendar", "v3", credentials=creds, cache_discovery=False)
 
 
 def get_authenticated_email(service, creds: Optional[Credentials] = None) -> Optional[str]:
