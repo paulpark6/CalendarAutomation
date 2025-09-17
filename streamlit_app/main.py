@@ -3,7 +3,7 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 # Only keep what we actually use now.
 from project_code.auth import *
-import streamlit_app.ui as ui
+from . import ui
 
 # --- Idle / timeout configuration ---
 TIMEOUT_SECS = 2 * 60 * 60        # hard auto-logout at 2 hours
