@@ -79,6 +79,18 @@ def main():
 
     # --- Logged-in flow ---
     service = st.session_state.service
+
+    
+    # remove this line after issue is fixed
+    http = getattr(service, "_http", None)
+    creds = getattr(http, "credentials", None)
+    print("Creds object:", creds)
+    if creds:
+        print("  token:", creds.token)
+        print("  expired:", creds.expired)
+        print("  refresh_token:", creds.refresh_token)
+
+    # 
     try:
         user_email = assert_service_has_identity(service)
         st.session_state["user_email"] = user_email
