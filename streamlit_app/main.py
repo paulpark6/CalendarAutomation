@@ -90,12 +90,12 @@ def main():
         st.stop()
 
     # Show live token state in the sidebar (instead of print)
-    with st.sidebar.expander("🔐 Auth debug", expanded=True):
-        st.write({
-            "has_token": bool(getattr(creds, "token", None)),
-            "expired": bool(getattr(creds, "expired", None)),
-            "has_refresh_token": bool(getattr(creds, "refresh_token", None)),
-        })
+    # with st.sidebar.expander("🔐 Auth debug", expanded=True):
+    #     st.write({
+    #         "has_token": bool(getattr(creds, "token", None)),
+    #         "expired": bool(getattr(creds, "expired", None)),
+    #         "has_refresh_token": bool(getattr(creds, "refresh_token", None)),
+    #     })
 
     # If token is expired and we have a refresh_token, refresh now and rebind service
     if getattr(creds, "expired", False) and getattr(creds, "refresh_token", None):
