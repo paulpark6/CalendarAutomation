@@ -66,7 +66,14 @@ def main():
     st.session_state.setdefault("last_activity_ts", None)
 
     # --- Login gate (UI now owns OAuth flow) ---
-    if st.session_state.get("service") is None:
+
+    svc = st.session_state.get("service")
+    creds = st.session_state.get("credentials")
+
+    def _has_usable_token(c):
+        return bool(c and getattr(c, "token", None))
+
+    if svc is None or not _has_usable_token(creds):
         # Optional one-shot notice if prior run logged out due to timeout
         if st.session_state.pop("logout_reason", None) == "timeout":
             st.warning("You were logged out due to 2 hours of inactivity.")
