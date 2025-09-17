@@ -84,20 +84,26 @@ def main():
         # CRITICAL: stop here so the rest of the app doesn't render
         st.stop()
 
-    # --- Logged-in flow ---
-    service = st.session_state.service
+    creds = st.session_state.get("credentials")
+    if creds is None:
+        st.error("Auth problem: no credentials in session.")
+        st.stop()
 
-    
-    # remove this line after issue is fixed
-    http = getattr(service, "_http", None)
-    creds = getattr(http, "credentials", None)
+    # Debug info (remove later)
     print("Creds object:", creds)
-    if creds:
-        print("  token:", creds.token)
-        print("  expired:", creds.expired)
-        print("  refresh_token:", creds.refresh_token)
+    print("  token:", getattr(creds, "token", None))
+    print("  expired:", getattr(creds, "expired", None))
+    print("  refresh_token:", getattr(creds, "refresh_token", None))
 
-    # 
+    # Refresh if needed
+    if getattr(creds, "expired", False) and getattr(creds, "refresh_token", None):
+        creds.refresh(Request())
+        st.session_state["credentials"] = creds
+        st.session_state["service"] = build_calendar_service(creds)
+
+    # Use the refreshed service
+    service = st.session_state["service"]
+
     try:
         user_email = assert_service_has_identity(service)
         st.session_state["user_email"] = user_email
