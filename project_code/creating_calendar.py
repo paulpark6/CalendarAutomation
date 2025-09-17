@@ -6,6 +6,7 @@ from typing import Any, List, Dict, Optional, Union
 
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials
+from project_code.auth import assert_service_has_identity
 
 
 def _credentials_from_service(service) -> Optional[Credentials]:
@@ -184,19 +185,6 @@ def delete_calendar(creds: Credentials, calendar_id: str) -> None:
     )
     r.raise_for_status()
 
-def _assert_creds(service):
-    http = getattr(service, "_http", None)
-    creds = getattr(http, "credentials", None)
-    assert creds is not None, "No credentials on service._http"
-    # If expired, try refreshing (only works if refresh_token exists)
-    if creds.expired and creds.refresh_token:
-        from google.auth.transport.requests import Request
-        creds.refresh(Request())
-    # Show who we are (useful log)
-    me = AuthorizedSession(creds).get("https://www.googleapis.com/oauth2/v2/userinfo", timeout=8).json()
-    print("Authenticated as:", me.get("email"))
-
-
 
 # ---------- Event creation (public, used by UI) ----------
 def create_single_event(
@@ -318,7 +306,7 @@ def create_single_event(
     if rlist:
         body["recurrence"] = rlist
     # ----------------------------------------------------------
-    _assert_creds(service)
+    assert_service_has_identity(service)
     created = service.events().insert(
         calendarId=calendar_id,
         body=body,

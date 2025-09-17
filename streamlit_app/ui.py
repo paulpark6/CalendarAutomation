@@ -5,7 +5,7 @@ import json
 import math
 import datetime as dt
 from typing import List, Dict, Any, Optional
-
+from project_code.auth import *
 import pandas as pd
 import streamlit as st
 from project_code import auth
@@ -698,9 +698,17 @@ def _load_json_into_preview(raw_text: str):
 
 def show_event_builder(service):
     _init_session_defaults()
+    
     st.title("🧱 Event Builder")
     st.caption("Paste, upload, or describe your events. Preview, edit, and create by calendar groups.")
-
+    if st.button("Debug: who am I?"):
+        try:
+            assert_service_has_identity(service)  # this will refresh if needed and call userinfo
+            st.success("Authenticated ✅ (see server logs for email)")
+        except AssertionError as e:
+            st.error(f"Auth problem: {e}")
+        except Exception as e:
+            st.error(f"Auth check failed: {e}")
     # Calendar target + ensure
     with st.container(border=True):
         calendars = _get_calendars_cached(service)

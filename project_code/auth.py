@@ -15,6 +15,29 @@ from googleapiclient.discovery import build
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 
+SCOPES = ["https://www.googleapis.com/auth/calendar"]
+
+def build_calendar_service(creds):
+    # Ensure the access token is fresh before building the client
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+    return build("calendar", "v3", credentials=creds, cache_discovery=False)
+
+def assert_service_has_identity(service):
+    """Raise fast if the client is anonymous or token is bad."""
+    http = getattr(service, "_http", None)
+    creds = getattr(http, "credentials", None)
+    assert creds is not None, "No credentials on service._http (anonymous client)"
+    if creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+    r = AuthorizedSession(creds).get("https://www.googleapis.com/oauth2/v2/userinfo", timeout=6)
+    assert r.status_code == 200, f"userinfo failed: {r.status_code} {r.text}"
+    return r.json().get("email")
+
+def authorized_session_from_service(service):
+    http = getattr(service, "_http", None)
+    creds = getattr(http, "credentials", None)
+    return AuthorizedSession(creds)
 # ---------------------------------------------------------------------
 # Cloud/Web OAuth helpers (NO Streamlit here)
 # UI is responsible for: reading secrets, managing session/query params,
@@ -60,12 +83,6 @@ def web_exchange_code(client_id: str, client_secret: str, redirect_uri: str, cod
     flow = Flow.from_client_config(client_cfg, scopes=SCOPES, redirect_uri=redirect_uri)
     flow.fetch_token(code=code)
     return flow.credentials
-
-def build_calendar_service(creds):
-    if creds and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-    return build("calendar", "v3", credentials=creds, cache_discovery=False)
-
 
 # ---------------------------------------------------------------------
 # Token/service utilities (pure; no Streamlit)

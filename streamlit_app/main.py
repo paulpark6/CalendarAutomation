@@ -2,7 +2,7 @@ import time
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 # Only keep what we actually use now.
-from project_code.auth import logout_and_delete_token
+from project_code.auth import *
 import streamlit_app.ui as ui
 
 # --- Idle / timeout configuration ---
@@ -79,7 +79,12 @@ def main():
 
     # --- Logged-in flow ---
     service = st.session_state.service
-
+    try:
+        user_email = assert_service_has_identity(service)
+        st.session_state["user_email"] = user_email
+    except AssertionError as e:
+        st.error(f"Auth problem: {e}")
+        st.stop()
 
     # Seed the idle timer on first page after login
     if st.session_state.get("last_activity_ts") is None:
