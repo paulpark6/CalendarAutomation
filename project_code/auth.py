@@ -24,15 +24,31 @@ def build_calendar_service(creds):
     return build("calendar", "v3", credentials=creds, cache_discovery=False)
 
 def assert_service_has_identity(service):
-    """Raise fast if the client is anonymous or token is bad."""
+    """
+    Verify the discovery client has credentials and those creds can access Calendar.
+    Returns a reasonable 'identity' string (primary calendar id or first calendar id).
+    """
     http = getattr(service, "_http", None)
     creds = getattr(http, "credentials", None)
     assert creds is not None, "No credentials on service._http (anonymous client)"
+
+    # Refresh if needed (works when refresh_token present)
     if creds.expired and creds.refresh_token:
+        from google.auth.transport.requests import Request
         creds.refresh(Request())
-    r = AuthorizedSession(creds).get("https://www.googleapis.com/oauth2/v2/userinfo", timeout=6)
-    assert r.status_code == 200, f"userinfo failed: {r.status_code} {r.text}"
-    return r.json().get("email")
+
+    # Prove identity/permission using Calendar API (not userinfo)
+    try:
+        # list calendars; this requires calendar scope and will 401/403 if token is bad
+        data = service.calendarList().list(maxResults=10).execute()
+        items = data.get("items", []) or []
+        # Prefer primary calendar id as a stable 'identity'
+        primary = next((c for c in items if c.get("primary")), None)
+        ident = (primary or items[0])["id"] if items else None
+        assert ident, "Authenticated but no calendars found"
+        return ident
+    except Exception as e:
+        raise AssertionError(f"calendarList check failed: {e}")
 
 def authorized_session_from_service(service):
     http = getattr(service, "_http", None)
