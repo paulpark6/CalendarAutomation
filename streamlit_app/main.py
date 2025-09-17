@@ -83,32 +83,40 @@ def main():
 
         # CRITICAL: stop here so the rest of the app doesn't render
         st.stop()
-
+    # always take creds from session
     creds = st.session_state.get("credentials")
     if creds is None:
         st.error("Auth problem: no credentials in session.")
         st.stop()
 
-    # Debug info (remove later)
-    print("Creds object:", creds)
-    print("  token:", getattr(creds, "token", None))
-    print("  expired:", getattr(creds, "expired", None))
-    print("  refresh_token:", getattr(creds, "refresh_token", None))
+    # Show live token state in the sidebar (instead of print)
+    with st.sidebar.expander("🔐 Auth debug", expanded=True):
+        st.write({
+            "has_token": bool(getattr(creds, "token", None)),
+            "expired": bool(getattr(creds, "expired", None)),
+            "has_refresh_token": bool(getattr(creds, "refresh_token", None)),
+        })
 
-    # Refresh if needed
+    # If token is expired and we have a refresh_token, refresh now and rebind service
     if getattr(creds, "expired", False) and getattr(creds, "refresh_token", None):
-        creds.refresh(Request())
-        st.session_state["credentials"] = creds
-        st.session_state["service"] = build_calendar_service(creds)
+        try:
+            creds.refresh(Request())
+            st.session_state["credentials"] = creds
+            st.session_state["service"] = build_calendar_service(creds)
+            st.sidebar.success("Access token refreshed")
+        except Exception as e:
+            st.sidebar.error(f"Token refresh failed: {e}")
+            st.stop()
 
-    # Use the refreshed service
+    # use the (possibly refreshed) service
     service = st.session_state["service"]
 
     try:
-        user_email = assert_service_has_identity(service)
+        user_email = assert_service_has_identity(service)  # calls userinfo with the same token
         st.session_state["user_email"] = user_email
+        st.sidebar.info(f"Signed in as {user_email}")
     except AssertionError as e:
-        st.error(f"Auth problem: {e}")
+        st.sidebar.error(f"Auth problem: {e}")
         st.stop()
 
     # Seed the idle timer on first page after login
