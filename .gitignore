@@ -103,3 +103,4 @@ build/
 # Keep track of this file itself
 # ==========================================
 !.gitignore
+.env
