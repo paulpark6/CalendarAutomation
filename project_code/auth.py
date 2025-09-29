@@ -35,18 +35,28 @@ def assert_service_has_identity(service):
         from google.auth.transport.requests import Request
         creds.refresh(Request())
 
-    # Prove identity/permission using Calendar API (not userinfo)
+    session = AuthorizedSession(creds)
+
     try:
-        # list calendars; this requires calendar scope and will 401/403 if token is bad
-        data = service.calendarList().list(maxResults=10).execute()
-        items = data.get("items", []) or []
-        # Prefer primary calendar id as a stable 'identity'
-        primary = next((c for c in items if c.get("primary")), None)
-        ident = (primary or items[0])["id"] if items else None
-        assert ident, "Authenticated but no calendars found"
-        return ident
+        response = session.get(
+            "https://www.googleapis.com/calendar/v3/users/me/calendarList",
+            params={"maxResults": 10},
+            timeout=15,
+        )
+        response.raise_for_status()
+        data: Dict[str, Any] = response.json() or {}
+    except requests.exceptions.SSLError as ssl_err:
+        raise AssertionError(f"calendarList check failed (SSL): {ssl_err}") from ssl_err
+    except requests.RequestException as req_err:
+        raise AssertionError(f"calendarList check failed: {req_err}") from req_err
     except Exception as e:
-        raise AssertionError(f"calendarList check failed: {e}")
+        raise AssertionError(f"calendarList check failed: {e}") from e
+
+    items = data.get("items", []) or []
+    primary = next((c for c in items if c.get("primary")), None)
+    ident = (primary or items[0])["id"] if items else None
+    assert ident, "Authenticated but no calendars found"
+    return ident
 
 def authorized_session_from_service(service):
     http = getattr(service, "_http", None)
