@@ -113,6 +113,15 @@ def _primary_calendar_id() -> str:
     return st.session_state.get("active_calendar", "primary")
 
 
+def _set_active_calendar(cal_id: str) -> None:
+    """Sync active calendar selection across widgets/state."""
+    st.session_state["active_calendar"] = cal_id
+
+    ids = [c["id"] for c in st.session_state.get("calendars", [])]
+    if cal_id in ids:
+        st.session_state["evb_cal_select"] = ids.index(cal_id)
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # UX banners / flows
 
@@ -140,7 +149,7 @@ def _primary_calendar_banner(service):
                     tz = create_mod.get_user_default_timezone(creds)
                     new_id = create_mod.create_calendar(creds, new_name, time_zone=tz)
                     _refresh_calendars(service)
-                    st.session_state["active_calendar"] = new_id
+                    _set_active_calendar(new_id)
                     st.session_state["usage_stats"]["last_action"] = f"Created calendar {new_name}"
                     st.success(f"Created and selected `{_calendar_name_for_id(new_id)}`.")
                 except Exception as e:
@@ -271,7 +280,7 @@ def _maybe_render_delete_modal(service):
                     # Refresh list & fix selection if needed
                     _refresh_calendars(service)
                     if st.session_state.get("active_calendar") == cal_id:
-                        st.session_state["active_calendar"] = _primary_calendar_id()
+                        _set_active_calendar(_primary_calendar_id())
                 except Exception as e:
                     _error(f"Failed: {e}")
                 finally:
@@ -311,8 +320,7 @@ def _render_manage_calendars_ui(service):
                 st.caption("—")
         with c4:
             # Optional: quick switch
-            st.button("Use", key=f"use_{cal_id}",
-                      on_click=lambda cid=cal_id: st.session_state.update({"active_calendar": cid}))
+            st.button("Use", key=f"use_{cal_id}", on_click=_set_active_calendar, args=(cal_id,))
 
     _maybe_render_delete_modal(service)
 
@@ -329,7 +337,7 @@ def _refresh_calendars(service):
     cals = create_mod.list_calendars(creds)
     st.session_state["calendars"] = cals
     if cals and not any(c["id"] == st.session_state.get("active_calendar") for c in cals):
-        st.session_state["active_calendar"] = cals[0]["id"]
+        _set_active_calendar(cals[0]["id"])
     return cals
 
 
@@ -585,7 +593,7 @@ def show_home(service):
             format_func=lambda i: labels[i],
             index=idx
         )
-        st.session_state["active_calendar"] = ids[choice]
+        _set_active_calendar(ids[choice])
         _primary_calendar_banner(service)
     else:
         st.info("No calendars found. Use Event Builder to create one.")
@@ -604,7 +612,7 @@ def show_home(service):
                     cal_id = create_mod.create_calendar(creds, new_name, time_zone=tz)
                 _refresh_calendars(service)
                 _sync_preview_to_active_calendar()
-                st.session_state["active_calendar"] = cal_id
+                _set_active_calendar(cal_id)
                 _success(f"Calendar ready: `{new_name}` · `{cal_id}`")
             except Exception as e:
                 _error(f"Failed to create/ensure calendar: {e}")
@@ -727,7 +735,7 @@ def show_event_builder(service):
             index=idx,
             key="evb_cal_select",
         )
-        st.session_state["active_calendar"] = ids[choice]
+        _set_active_calendar(ids[choice])
         _sync_preview_to_active_calendar()
         _primary_calendar_banner(service)
         _render_manage_calendars_ui(service)
@@ -748,7 +756,7 @@ def show_event_builder(service):
                     tz = create_mod.get_user_default_timezone(creds)
                     cal_id = create_mod.create_calendar(creds, new_name, time_zone=tz)
                 _refresh_calendars(service)
-                st.session_state["active_calendar"] = cal_id
+                _set_active_calendar(cal_id)
                 _success(f"Calendar ready: `{new_name}` · `{cal_id}`")
             except Exception as e:
                 _error(f"Failed: {e}")
