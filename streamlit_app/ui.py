@@ -113,12 +113,15 @@ def _primary_calendar_id() -> str:
     return st.session_state.get("active_calendar", "primary")
 
 
-def _set_active_calendar(cal_id: str) -> None:
-    """Sync active calendar selection across widgets/state."""
+def _set_active_calendar(cal_id: str, *, sync_widget: bool = False) -> None:
+    """Sync active calendar selection across state, optionally updating widgets."""
     st.session_state["active_calendar"] = cal_id
 
+    if not sync_widget:
+        return
+
     ids = [c["id"] for c in st.session_state.get("calendars", [])]
-    if cal_id in ids:
+    if cal_id in ids and "evb_cal_select" in st.session_state:
         st.session_state["evb_cal_select"] = ids.index(cal_id)
 
 
@@ -149,7 +152,7 @@ def _primary_calendar_banner(service):
                     tz = create_mod.get_user_default_timezone(creds)
                     new_id = create_mod.create_calendar(creds, new_name, time_zone=tz)
                     _refresh_calendars(service)
-                    _set_active_calendar(new_id)
+                    _set_active_calendar(new_id, sync_widget=True)
                     st.session_state["usage_stats"]["last_action"] = f"Created calendar {new_name}"
                     st.success(f"Created and selected `{_calendar_name_for_id(new_id)}`.")
                 except Exception as e:
@@ -280,7 +283,7 @@ def _maybe_render_delete_modal(service):
                     # Refresh list & fix selection if needed
                     _refresh_calendars(service)
                     if st.session_state.get("active_calendar") == cal_id:
-                        _set_active_calendar(_primary_calendar_id())
+                        _set_active_calendar(_primary_calendar_id(), sync_widget=True)
                 except Exception as e:
                     _error(f"Failed: {e}")
                 finally:
@@ -320,7 +323,12 @@ def _render_manage_calendars_ui(service):
                 st.caption("—")
         with c4:
             # Optional: quick switch
-            st.button("Use", key=f"use_{cal_id}", on_click=_set_active_calendar, args=(cal_id,))
+            st.button(
+                "Use",
+                key=f"use_{cal_id}",
+                on_click=_set_active_calendar,
+                kwargs={"cal_id": cal_id, "sync_widget": True},
+            )
 
     _maybe_render_delete_modal(service)
 
@@ -612,7 +620,7 @@ def show_home(service):
                     cal_id = create_mod.create_calendar(creds, new_name, time_zone=tz)
                 _refresh_calendars(service)
                 _sync_preview_to_active_calendar()
-                _set_active_calendar(cal_id)
+                _set_active_calendar(cal_id, sync_widget=True)
                 _success(f"Calendar ready: `{new_name}` · `{cal_id}`")
             except Exception as e:
                 _error(f"Failed to create/ensure calendar: {e}")
@@ -756,7 +764,7 @@ def show_event_builder(service):
                     tz = create_mod.get_user_default_timezone(creds)
                     cal_id = create_mod.create_calendar(creds, new_name, time_zone=tz)
                 _refresh_calendars(service)
-                _set_active_calendar(cal_id)
+                _set_active_calendar(cal_id, sync_widget=True)
                 _success(f"Calendar ready: `{new_name}` · `{cal_id}`")
             except Exception as e:
                 _error(f"Failed: {e}")
