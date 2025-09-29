@@ -47,3 +47,6 @@ pytest
 
 # Lint (optional)
 flake8
+
+# open AI 
+google-genai

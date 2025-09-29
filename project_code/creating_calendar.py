@@ -6,7 +6,10 @@ from typing import Any, List, Dict, Optional, Union
 
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials
-from project_code.auth import assert_service_has_identity
+from project_code.auth import (
+    assert_service_has_identity,
+    authorized_session_from_service,
+)
 
 
 def _credentials_from_service(service) -> Optional[Credentials]:
@@ -17,49 +20,32 @@ def _credentials_from_service(service) -> Optional[Credentials]:
     return getattr(http, "credentials", None)
 
 
-def _authed_session(service, creds: Optional[Credentials] = None) -> AuthorizedSession:
-    """
-    Build an AuthorizedSession from provided creds or from the service object.
-    """
-    c = creds or _credentials_from_service(service)
-    if c is None:
+def _calendar_session(
+    primary: Optional[Union[Any, Credentials]],
+    explicit_creds: Optional[Credentials] = None,
+) -> AuthorizedSession:
+    """Return an AuthorizedSession using either creds or a discovery service."""
+
+    if isinstance(primary, Credentials):
+        # Allow callers to pass credentials positionally (historical API).
+        return AuthorizedSession(primary)
+
+    if explicit_creds is not None:
+        return AuthorizedSession(explicit_creds)
+
+    if primary is None:
         raise RuntimeError("No Google credentials available. Sign in again.")
-    return AuthorizedSession(c)
 
+    # Reuse the auth helper so service-based callers share the same logic.
+    session = authorized_session_from_service(primary)
 
-def list_calendars(service, creds: Optional[Credentials] = None) -> List[Dict[str, Any]]:
-    """
-    Return the user's calendars: id, summary, accessRole, primary, timeZone.
-    """
-    sess = _authed_session(service, creds)
-    url = "https://www.googleapis.com/calendar/v3/users/me/calendarList"
+    if getattr(getattr(session, "credentials", None), "token", None) is None:
+        creds = _credentials_from_service(primary)
+        if creds is None:
+            raise RuntimeError("No Google credentials available. Sign in again.")
+        return AuthorizedSession(creds)
 
-    results: List[Dict[str, Any]] = []
-    token: Optional[str] = None
-
-    while True:
-        params = {"maxResults": 250}
-        if token:
-            params["pageToken"] = token
-
-        r = sess.get(url, params=params, timeout=30)
-        r.raise_for_status()
-        data = r.json() or {}
-
-        for it in data.get("items", []):
-            results.append({
-                "id": it["id"],
-                "summary": it.get("summary", it["id"]),
-                "accessRole": it.get("accessRole"),
-                "primary": it.get("primary", False),
-                "timeZone": it.get("timeZone"),
-            })
-
-        token = data.get("nextPageToken")
-        if not token:
-            break
-
-    return results
+    return session
 
 # ---------- Low-level HTTP session (internal helper) ----------
 def _session(creds: Credentials) -> AuthorizedSession:
@@ -69,11 +55,19 @@ def _session(creds: Credentials) -> AuthorizedSession:
 
 
 # ---------- Calendar CRUD (public) ----------
-def list_calendars(creds: Credentials) -> List[Dict[str, Any]]:
+def list_calendars(
+    primary: Union[Credentials, Any],
+    creds: Optional[Credentials] = None,
+) -> List[Dict[str, Any]]:
     """
-    Return list of calendars with: id, summary, accessRole, primary, timeZone.
+    Return the user's calendars with id, summary, role, primary flag, timeZone.
+
+    Accepts either Credentials (as the first positional argument, for backwards
+    compatibility) or a discovery `service`.  When a service is supplied you can
+    optionally pass explicit `creds` to override the session-level credentials.
     """
-    sess = _session(creds)
+
+    sess = _calendar_session(primary, creds)
     url = "https://www.googleapis.com/calendar/v3/users/me/calendarList"
     out: List[Dict[str, Any]] = []
     token: Optional[str] = None

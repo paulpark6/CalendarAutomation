@@ -12,8 +12,6 @@ from googleapiclient.discovery import build
 # ---------------------------------------------------------------------
 # OAuth scope (you can narrow later to calendar.events + calendar.readonly)
 # ---------------------------------------------------------------------
-SCOPES = ["https://www.googleapis.com/auth/calendar"]
-
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
