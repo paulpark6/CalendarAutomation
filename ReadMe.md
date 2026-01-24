@@ -21,8 +21,10 @@ Open your terminal in the project root (CalendarProject/):
 # Create virtual environment (if you haven't already)
 python3 -m venv sandboxenv
 # Activate it
-source sandboxenv/bin/activate  # macOS/Linux
-# .\sandboxenv\Scripts\Activate.ps1  # Windows
+## For APPLE
+source sandboxenv/bin/activate
+## For WINDOWS
+.\sandboxenv\Scripts\Activate.ps1 
 # Install dependencies
 pip install -r requirements.txt
 3. Run the App
