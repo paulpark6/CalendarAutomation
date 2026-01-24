@@ -46,9 +46,9 @@ CalendarProject/
 │   ├── __init__.py
 │   ├── auth.py              # Google authentication logic
 │   ├── creating_calendar.py # Calendar creation and event logic
-│   ├── db.py                # Database helpers (if used)
+│   ├── db.py                # Database helpers (NOT CURRENTLY IN USE)
 │   ├── llm_methods.py       # LLM-related methods (if any)
-│   └── methods.py           # General utility methods
+│   └── calendar_methods.py  # Calendar utility methods
 ├── streamlit_app/
 │   ├── __init__.py
 │   ├── auth.py              # Streamlit authentication helpers
