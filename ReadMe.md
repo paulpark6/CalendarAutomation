@@ -11,53 +11,26 @@ This project automates calendar-related tasks using the **Google Calendar API** 
 - **Modular codebase**: Organized into authentication, calendar logic, database, and UI components.
 
 ---
+🚀 How to Start the Project
+1. Prerequisites
+Ensure you have your credentials.json file inside the UserData/ folder.
 
-## ✅ Prerequisites
+2. Setup Environment
+Open your terminal in the project root (CalendarProject/):
 
-- Python 3.8 or newer
-- The provided `requirements.txt` file
-- A Google Cloud project with the Google Calendar API enabled
-- Your `credentials.json` file downloaded from the Google Developer Console
-
----
-
-## 💻 Environment Setup
-
-### 1. Create and Activate a Virtual Environment
-
-**macOS/Linux:**
-```bash
+# Create virtual environment (if you haven't already)
 python3 -m venv sandboxenv
-source sandboxenv/bin/activate
-```
-
-**Windows:**
-```powershell
-python -m venv sandboxenv
-.\sandboxenv\Scripts\Activate.ps1
-```
-
-### 2. Install Dependencies
-```bash
+# Activate it
+source sandboxenv/bin/activate  # macOS/Linux
+# .\sandboxenv\Scripts\Activate.ps1  # Windows
+# Install dependencies
 pip install -r requirements.txt
-```
+3. Run the App
+Launch the Streamlit server:
 
----
-
-## 🔐 Google Calendar API Authentication
-
-### Step 1: Obtain Credentials
-1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
-2. Enable the **Google Calendar API** for your project.
-3. Download the OAuth 2.0 Client ID credentials and save as:
-   ```
-   ./UserData/credentials.json
-   ```
-
-### Step 2: Automatic Authentication & Token Generation
-When you first log in to the app with your Google account, you will be prompted to authenticate with Google. The app will automatically generate and store the required `token.json` file in the `UserData/` directory after successful authentication. You do **not** need to run any manual Python commands for token generation.
-
-> If browser authentication does not open automatically, follow the troubleshooting steps below.
+streamlit run streamlit_app/main.py
+A browser window will open (usually at http://localhost:8501).
+Follow the "Continue with Google" prompt to sign in.
 
 ---
 

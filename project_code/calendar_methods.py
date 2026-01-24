@@ -1,14 +1,14 @@
-# method.py
+# calendar_methods.py
 """
 Utility functions for Google Calendar integration **plus** a minimal local cache.
 
 Key features
 ============
-* Custom IDs (`appCreated_<hash>`) to distinguish app‑created events.
+* Custom IDs (`appCreated_<hash>`) to distinguish app created events.
 * Duplicate handling (`if_exists`: "skip" | "update" | "error").
 * Automatic notice appended to the description.
 * Minimal local JSON cache (title / start / end / unique_key).
-* Human‑readable search & deletion helpers.
+* Human readable search & deletion helpers.
 """
 
 from __future__ import annotations
