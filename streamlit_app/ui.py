@@ -779,6 +779,7 @@ def show_event_builder(service):
         st.markdown("""
         **Prompt-Engineered Models:**
         You can use either Gemini or ChatGPT!
+        For more information, you can ask the models "How do I use you?"
         - [Gemini Model](https://gemini.google.com/gem/18-IbkHbrqKkymmHJmirEUGfulE2BujaF?usp=sharing)
         - [ChatGPT Model](https://chatgpt.com/g/g-68b888b9f56481919ecd05f8c647130d-event-parser-assistant)
         """)
