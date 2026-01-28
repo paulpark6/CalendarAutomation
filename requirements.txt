@@ -50,3 +50,8 @@ flake8
 
 # open AI 
 google-genai
+
+# --- ML / Deep Learning ---
+transformers
+torch
+huggingface_hub

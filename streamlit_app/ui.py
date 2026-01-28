@@ -139,7 +139,7 @@ def _primary_calendar_banner(service):
 
     if _is_primary(cal_id):
         st.warning(
-            "You’re targeting your **Primary** calendar. For bulk/testing, create and use a separate calendar.",
+            "You're targeting your **Primary** calendar. For bulk/testing, create and use a separate calendar.",
             icon="⚠️",
         )
         c1, c2 = st.columns([0.7, 0.3])
@@ -775,7 +775,13 @@ def show_event_builder(service):
     tab1, tab2, tab3 = st.tabs(["Natural Language (LLM)", "Upload .txt", "Structured paste"])
 
     with tab1:
-        st.markdown("Describe your events in plain English (stubbed for now).")
+        st.markdown("Describe your events in plain English (Locally hosted model is still in development).")
+        st.markdown("""
+        **Prompt-Engineered Models:**
+        You can use either Gemini or ChatGPT!
+        - [Gemini Model](https://gemini.google.com/gem/18-IbkHbrqKkymmHJmirEUGfulE2BujaF?usp=sharing)
+        - [ChatGPT Model](https://chatgpt.com/g/g-68b888b9f56481919ecd05f8c647130d-event-parser-assistant)
+        """)
         st.info('Example: "Study group Monday 7-8pm at DC Library; Coffee with Maya Tue 9:30am."')
         nl = st.text_area("Your description", height=140, key="evb_nl")
         st.checkbox("I agree to pay for LLM parsing.", key="evb_billing_ok")
