@@ -4,6 +4,7 @@ streamlit-autorefresh>=1.0.1
 pandas>=2.2
 numpy>=2.2
 streamlit-aggrid>=0.3.4
+streamlit-calendar
 
 # Config / env
 python-dotenv>=1.0

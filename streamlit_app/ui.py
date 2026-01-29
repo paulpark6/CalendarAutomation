@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional
 from project_code.auth import *
 import pandas as pd
 import streamlit as st
+from streamlit_calendar import calendar
 from project_code import auth
 
 # 🔁 Project code (no Streamlit) helpers for Calendar API CRUD + event creation
@@ -508,7 +509,16 @@ def show_login_page():
     cfg = st.secrets["google_oauth"]
     client_id = cfg["client_id"]
     client_secret = cfg["client_secret"]
-    redirect_uri = cfg["redirect_uri"]
+    
+    # Dynamic redirect URI based on mode
+    app_cfg = st.secrets.get("app", {})
+    mode = app_cfg.get("mode", "local")
+    
+    redirect_uri = (
+        app_cfg.get("local_redirect_uri", "http://localhost:8501/")
+        if mode == "local"
+        else app_cfg.get("cloud_redirect_uri", "https://lazycal.streamlit.app/")
+    )
 
     # Already signed in?
     creds = st.session_state.get("credentials")
@@ -1044,3 +1054,364 @@ def _undo_last_batch(service):
         _error(f"Deleted {deleted} event(s), but {not_found_total} could not be found for undo.")
     else:
         _error("Undo failed: no matching events were found to delete.")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# New Dashboard Components
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _get_calendar_events_for_view(service, cal_id: str, start_date: dt.date, end_date: dt.date) -> list[dict]:
+    """Fetch events for the monthly view."""
+    time_min = start_date.isoformat() + "T00:00:00Z"
+    time_max = end_date.isoformat() + "T23:59:59Z"
+    
+    try:
+        events_result = service.events().list(
+            calendarId=cal_id,
+            timeMin=time_min,
+            timeMax=time_max,
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute()
+        items = events_result.get('items', [])
+        
+        # Convert to streamlit_calendar format
+        # { title, start, end, resourceId, etc }
+        cal_events = []
+        for event in items:
+            start = event.get('start')
+            end = event.get('end')
+            
+            # Determine validation color/style if needed, mostly just standard now
+            evt = {
+                "title": event.get('summary', '(No Title)'),
+                "start": start.get('dateTime') or start.get('date'),
+                "end": end.get('dateTime') or end.get('date'),
+                "id": event.get('id'),
+                "extendedProps": {
+                    "description": event.get('description', ''),
+                    "location": event.get('location', '')
+                }
+                # "backgroundColor": "#FF6C6C" if ... else ...
+            }
+            cal_events.append(evt)
+        return cal_events
+
+    except Exception as e:
+        st.error(f"Error fetching events: {e}")
+        return []
+
+
+def render_chat_column(service):
+    """
+    Left column: Chat input and instructions.
+    Matches 'Chat with your calendar agent' from sketch.
+    """
+    st.subheader("Chat")
+    
+    # Instructions / Context
+    st.caption("Chat with your calendar agent.")
+    
+    # 1. Chat input area
+    user_input = st.text_area(
+        "Type natural language request...", 
+        height=150, 
+        key="dash_chat_input",
+        placeholder="E.g., 'Schedule a dentist appointment next Tuesday at 2pm'"
+    )
+    
+    c1, c2 = st.columns([1, 1])
+    with c1:
+        # User mentioned they use links for now, but we prepare the UI
+        if st.button("Import / Parse", key="dash_import_btn", type="primary", use_container_width=True):
+             if user_input.strip():
+                 # For now, just load into preview like "Event Builder" did, 
+                 # or verify if we have LLM capabilities enabled.
+                 # This is a stub to link to existing logic if possible.
+                 if st.session_state.get("evb_llm_enabled") and st.session_state.get("evb_billing_ok"):
+                     st.info("Sending to LLM... (This would call your LLM logic)")
+                     # TODO: call LLM parsing function
+                 else:
+                     # Fallback or "Event Builder" redirect style? 
+                     # For now, let's just show a message or try to use the 'Event Builder' parsing if relevant.
+                     # But since user said "I just have links", we might just point them there?
+                     pass
+             else:
+                 st.warning("Type something first.")
+    
+    with c2:
+         # Link to external LLMs as requested by user previously
+         st.link_button("Gemini Model", "https://gemini.google.com/gem/18-IbkHbrqKkymmHJmirEUGfulE2BujaF?usp=sharing", use_container_width=True)
+
+    # 2. Minimizable box "Completed Tasks" (or Usage/History)
+    with st.expander("Completed tasks (Session)", expanded=True):
+         stats = st.session_state.get("usage_stats", {})
+         st.write(f"Events added: **{stats.get('events_added', 0)}**")
+         st.caption(f"Last: {stats.get('last_action', '—')}")
+         
+         # Undo button here
+         if st.button("Undo last batch", key="dash_undo_btn"):
+             _undo_last_batch(service)
+
+    # 3. Mode / View switcher (as per sketch "user can change the view")
+    # Actually verifying sketch: "user can change the view, weekly, daily, quarterly" points to the Calendar Column usually,
+    # but the arrow in sketch points from Chat box area. 
+    # Let's put view control in the middle column for better UI standard, or here if strictly following sketch.
+    # Sketch has arrow "User can change the view" pointing to "This week" tab on "Completed task" box? 
+    # Or pointing to the calendar? It looks like it points to the text "This week" above "Completed task".
+    # I will assume "View" controls the Main Calendar for now, usually placed near the calendar.
+
+
+def render_calendar_column(service):
+    """
+    Middle column: The visual calendar.
+    """
+    # Active calendar selector at top
+    c_sel, c_view = st.columns([0.6, 0.4])
+    
+    calendars = _get_calendars_cached(service)
+    ids = [c["id"] for c in calendars]
+    labels = [_calendar_label(c) for c in calendars]
+    
+    cur_id = st.session_state.get("active_calendar", "primary")
+    try:
+        idx = ids.index(cur_id)
+    except:
+        idx = 0
+        
+    with c_sel:
+        # Compact selection
+        new_idx = st.selectbox(
+            "Calendar", 
+            options=range(len(ids)), 
+            format_func=lambda i: labels[i],
+            index=idx,
+            label_visibility="collapsed",
+            key="dash_cal_sel"
+        )
+        if ids and ids[new_idx] != cur_id:
+            _set_active_calendar(ids[new_idx], sync_widget=True)
+            st.rerun()
+
+    current_cal_id = st.session_state.get("active_calendar", "primary")
+    
+    # View toggles (Monthly, Weekly, Daily)
+    # streamlit_calendar has 'initialView' in options. 
+    # We can store view mode in session state to persist it.
+    view_mode = st.session_state.get("calendar_view_mode", "dayGridMonth")
+    
+    with c_view:
+        # Simple toggle or selectbox
+        v = st.selectbox(
+            "View", 
+            ["Month", "Week", "Day", "List"], 
+            index=["Month", "Week", "Day", "List"].index({
+                "dayGridMonth": "Month", 
+                "timeGridWeek": "Week", 
+                "timeGridDay": "Day", 
+                "listMonth": "List"
+            }[view_mode]),
+            label_visibility="collapsed",
+            key="dash_view_sel"
+        )
+        mode_map = {
+            "Month": "dayGridMonth", 
+            "Week": "timeGridWeek", 
+            "Day": "timeGridDay", 
+            "List": "listMonth"
+        }
+        if mode_map[v] != view_mode:
+            st.session_state["calendar_view_mode"] = mode_map[v]
+            st.rerun()
+
+    # Determine date range to fetch - logic slightly simplified for now (fetch +/- 1 month from today usually good enough for month view, 
+    # but for best result ideally we know the visible range. 
+    # For now, let's fetch current month +/- 1.
+    today = dt.date.today()
+    start_range = today - dt.timedelta(days=40)
+    end_range = today + dt.timedelta(days=40)
+    
+    events = _get_calendar_events_for_view(service, current_cal_id, start_range, end_range)
+    
+    calendar_options = {
+        "headerToolbar": {
+            "left": "today prev,next",
+            "center": "title",
+            "right": ""  # We used custom dropdown for view
+        },
+        "initialView": st.session_state.get("calendar_view_mode", "dayGridMonth"),
+        "height": 650,
+    }
+    
+    # Render
+    calendar(events=events, options=calendar_options, key="main_calendar_widget")
+
+
+def render_right_column(service):
+    """
+    Right column: Things Due (Today, This Week).
+    """
+    st.subheader("Tasks")
+    
+    # We reuse the logic to fetch upcoming events, but filter them locally
+    # Or just fetch a batch and display.
+    
+    cal_id = st.session_state.get("active_calendar", "primary")
+    
+    # Fetch ample events to filter
+    all_events = _fetch_upcoming_events(service, cal_id, max_count=60)
+    
+    today = dt.date.today()
+    
+    # Convert to objects for easier handling if needed, or just work with dicts
+    # _fetch_upcoming_events returns dicts with 'start': {'date':... or 'dateTime':...}
+    
+    files_today = []
+    files_week = []
+    
+    for e in all_events:
+        # parsing start
+        start = e.get("start", {})
+        dt_str = start.get("dateTime") or start.get("date")
+        if not dt_str:
+            continue
+        
+        # Simple parse
+        try:
+            # Handle ISO format quirks
+            if "T" in dt_str:
+                d = dt.datetime.fromisoformat(dt_str.replace("Z", "+00:00")).date()
+            else:
+                d = dt.date.fromisoformat(dt_str)
+            
+            delta_days = (d - today).days
+            
+            if delta_days == 0:
+                files_today.append(e)
+            elif 0 < delta_days <= 7:
+                files_week.append(e)
+        except:
+            pass
+
+    # Render "Today"
+    st.markdown("#### Today")
+    if not files_today:
+        st.caption("No events today.")
+    else:
+        for idx, e in enumerate(files_today):
+            summary = e.get("summary", "(No Title)")
+            start = e.get("start", {})
+            # time formatting
+            t = ""
+            if "dateTime" in start:
+                try:
+                    dt_obj = dt.datetime.fromisoformat(start["dateTime"].replace("Z", "+00:00"))
+                    t = dt_obj.strftime("%H:%M")
+                except: pass
+            
+            with st.container(border=True):
+                st.markdown(f"**{summary}**")
+                if t: st.caption(t)
+                # Checkbox for "done"? (Visual only for now as Google Calendar doesn't strictly have 'done' for events, unless Tasks)
+                # st.checkbox("Done", key=f"today_{e['id']}_{idx}")
+
+    # Render "This Week"
+    st.markdown("#### This Week")
+    if not files_week:
+        st.caption("No events this week.")
+    else:
+        for idx, e in enumerate(files_week):
+            summary = e.get("summary", "(No Title)")
+            start = e.get("start", {})
+            date_str = ""
+            if "dateTime" in start:
+                 try:
+                    dt_obj = dt.datetime.fromisoformat(start["dateTime"].replace("Z", "+00:00"))
+                    date_str = dt_obj.strftime("%a %H:%M")
+                 except: pass
+            elif "date" in start:
+                 try:
+                    d_obj = dt.date.fromisoformat(start["date"])
+                    date_str = d_obj.strftime("%a")
+                 except: pass
+
+            with st.container(border=True):
+                st.markdown(f"**{summary}**")
+                st.caption(date_str)
+# ──────────────────────────────────────────────────────────────────────────────
+# Legacy / Shared Components refactored
+# ──────────────────────────────────────────────────────────────────────────────
+
+def render_event_loader_section(service):
+    """
+    The parser/loader section from Event Builder, placed below the main columns so it has space.
+    """
+    st.divider()
+    st.subheader("Event Entry & Validation")
+    
+    # Tabs for Data Entry
+    tab1, tab2 = st.tabs(["Structured Input", "Upload/Paste"])
+    
+    with tab1:
+        # The 'Event Builder' style interactive table
+        
+        # Ensure we have a dataframe
+        if "parsed_events_df" not in st.session_state:
+             st.session_state["parsed_events_df"] = pd.DataFrame()
+
+        # ... (Reuse the logic from show_event_builder editor)
+        # We need to copy some of that logic here or make it reusable.
+        # For brevity, I'll invoke the logic via a simplified version of the code removed from show_event_builder
+        # Ideally, we refactor show_event_builder to just call this, but we are deprecating show_event_builder functionality as a separate page.
+        
+        display_df = st.session_state["parsed_events_df"].copy()
+        for col in ["service", "google_calendar_id", "calendar_name", "user_email"]:
+            if col in display_df.columns:
+                display_df = display_df.drop(columns=[col])
+
+        selected_id = st.session_state.get("active_calendar", "primary")
+        
+        if display_df.empty:
+            st.info("No events pending. Use the Chat input or Paste JSON below to add events.")
+        
+        editable_df, json_cols = _to_streamlit_editable(display_df)
+        edited = st.data_editor(
+            editable_df,
+            width='stretch',
+            height=300,
+            num_rows="dynamic",
+            key="dash_editor",
+            column_config={
+               # minimal config
+            },
+        )
+        edited = _from_streamlit_editable(edited, json_cols)
+        
+        # Sync back
+        base_df = st.session_state["parsed_events_df"]
+        for col in edited.columns:
+            if col in base_df.columns:
+                base_df[col] = edited[col]
+        st.session_state["parsed_events_df"] = base_df
+        
+        if st.button("🚀 Create Events", key="dash_create_btn", type="primary"):
+             df_to_create = st.session_state["parsed_events_df"].copy()
+             # (Reuse creation logic)
+             if "calendar_id" not in df_to_create.columns:
+                df_to_create["calendar_id"] = ""
+             mask_cal = df_to_create["calendar_id"].isna() | (df_to_create["calendar_id"].astype(str).str.strip() == "")
+             df_to_create.loc[mask_cal, "calendar_id"] = selected_id
+             df_to_create["calendar_name"] = _calendar_name_for_id(selected_id)
+             if "google_calendar_id" not in df_to_create.columns:
+                df_to_create["google_calendar_id"] = df_to_create["calendar_id"]
+             
+             _create_events_batch(service, df_to_create)
+             # Clear after success?
+             # st.session_state["parsed_events_df"] = pd.DataFrame() 
+
+    with tab2:
+        # JSON Paste
+        raw = st.text_area("Paste JSON Events", height=150, placeholder="[{...}]", key="dash_paste_json")
+        if st.button("Parse JSON", key="dash_parse_btn"):
+             _load_json_into_preview(raw)
+

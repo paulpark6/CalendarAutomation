@@ -25,6 +25,7 @@ Follow these steps to get the app running locally.
     - Application type: **Web application**.
     - **Authorized redirect URIs**: Add `http://localhost:8501`.
     - Click **Create** and copy your **Client ID** and **Client Secret**.
+    - *Tip*: If you closed the popup, click the **pencil icon (EDit)** next to your specific OAuth 2.0 Client ID in the Credentials tab to view the Client ID and Secret again.
 
 ### 3. Application Configuration
 Create a secrets file for Streamlit to store your credentials.

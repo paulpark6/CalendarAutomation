@@ -2,8 +2,12 @@ import time
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 # Only keep what we actually use now.
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from project_code.auth import *
-from . import ui
+from streamlit_app import ui
 
 # --- Idle / timeout configuration ---
 TIMEOUT_SECS = 2 * 60 * 60        # hard auto-logout at 2 hours
@@ -62,7 +66,6 @@ def main():
     st.session_state.setdefault("service", None)
     st.session_state.setdefault("credentials", None)
     st.session_state.setdefault("user_email", None)
-    st.session_state.setdefault("nav", "Home")
     st.session_state.setdefault("last_activity_ts", None)
 
     # --- Login gate (UI now owns OAuth flow) ---
@@ -89,14 +92,6 @@ def main():
         st.error("Auth problem: no credentials in session.")
         st.stop()
 
-    # Show live token state in the sidebar (instead of print)
-    # with st.sidebar.expander("🔐 Auth debug", expanded=True):
-    #     st.write({
-    #         "has_token": bool(getattr(creds, "token", None)),
-    #         "expired": bool(getattr(creds, "expired", None)),
-    #         "has_refresh_token": bool(getattr(creds, "refresh_token", None)),
-    #     })
-
     # If token is expired and we have a refresh_token, refresh now and rebind service
     if getattr(creds, "expired", False) and getattr(creds, "refresh_token", None):
         try:
@@ -114,7 +109,7 @@ def main():
     try:
         user_email = assert_service_has_identity(service)  # calls userinfo with the same token
         st.session_state["user_email"] = user_email
-        st.sidebar.info(f"Signed in as {user_email}")
+        # st.sidebar.info(f"Signed in as {user_email}") # Sidebar is minimal now
     except AssertionError as e:
         st.sidebar.error(f"Auth problem: {e}")
         st.stop()
@@ -129,34 +124,36 @@ def main():
     # 2) Check for hard timeout first (logs out if exceeded)
     _maybe_timeout_logout()
 
-    # 3) Sidebar nav (count page switch as activity)
-    with st.sidebar:
-        st.markdown("### 📚 Navigation")
-        current = st.session_state.get("nav", "Home")
+    # 3) Layout Implementation
+    _touch_activity() # Any interaction refreshes activity
 
-        page = st.radio(
-            label="",
-            options=["Home", "Event Builder", "Settings"],
-            index=["Home", "Event Builder", "Settings"].index(current),
-            key="nav_radio",
-        )
-
-        # Switching pages counts as activity
-        if page != current:
-            _touch_activity()
-        st.session_state.nav = page
-
-        # Manual logout
-        if st.button("Log out", type="secondary", key="sidebar_logout"):
+    # Top Bar (minimal)
+    c_top1, c_top2 = st.columns([0.8, 0.2])
+    with c_top1:
+        st.title("Calendar Agent 📅")
+    with c_top2:
+        if st.button("Log out", key="top_logout"):
             _do_logout("manual")
 
-    # 4) Render pages (sprinkle _touch_activity() inside important actions if needed)
-    if page == "Home":
-        ui.show_home(service)
-    elif page == "Event Builder":
-        ui.show_event_builder(service)
-    else:
-        ui.show_settings(service)
+    # 3-Column Dashboard
+    # Left: Chat/Input (25%)
+    # Mid: Calendar (50%)
+    # Right: Tasks/Info (25%)
+    
+    col_left, col_mid, col_right = st.columns([0.25, 0.50, 0.25], gap="medium")
+
+    with col_left:
+        ui.render_chat_column(service)
+
+    with col_mid:
+        ui.render_calendar_column(service)
+
+    with col_right:
+        ui.render_right_column(service)
+
+    # 4) Bottom / Full width specific tools
+    # We place the data entry/validation table here as it needs width
+    ui.render_event_loader_section(service)
 
 
 if __name__ == "__main__":
