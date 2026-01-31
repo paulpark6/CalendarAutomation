@@ -1,0 +1,1417 @@
+# streamlit_app/ui.py
+from __future__ import annotations
+
+import json
+import math
+import datetime as dt
+from typing import List, Dict, Any, Optional
+from project_code.auth import *
+import pandas as pd
+import streamlit as st
+from streamlit_calendar import calendar
+from project_code import auth
+
+# 🔁 Project code (no Streamlit) helpers for Calendar API CRUD + event creation
+# Make sure these functions exist in project_code/creating_calendar.py
+from project_code import creating_calendar as create_mod
+
+DEFAULT_NAME = dt.date.today().strftime("My Calendar %Y-%m-%d")
+
+# data preview
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Data editor helpers (Streamlit-only)
+# These helpers let st.data_editor handle list/dict cells by temporarily
+# serializing them to JSON strings and then parsing them back after editing.
+
+def _to_streamlit_editable(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """
+    Return a copy of df where any list/dict cells are converted to JSON strings,
+    plus a list of the columns we transformed so we can parse them back later.
+    """
+    editable = df.copy()
+    json_cols: list[str] = []
+    for col in editable.columns:
+        # If *any* value in the column is a list/dict, treat the whole column as JSON-able
+        if editable[col].map(lambda v: isinstance(v, (list, dict))).any():
+            json_cols.append(col)
+            editable[col] = editable[col].map(
+                lambda v: json.dumps(v, ensure_ascii=False) if isinstance(v, (list, dict)) else v
+            )
+    return editable, json_cols
+
+
+def _from_streamlit_editable(edited: pd.DataFrame, json_cols: list[str]) -> pd.DataFrame:
+    """
+    Parse back the JSON strings created by _to_streamlit_editable for the
+    specified columns. Non-JSON strings are left as-is.
+    """
+    parsed = edited.copy()
+    for col in json_cols:
+        if col in parsed.columns:
+            def _maybe_json(x):
+                if isinstance(x, str):
+                    s = x.strip()
+                    # quick shape check: looks like a JSON list or dict
+                    if (s.startswith('[') and s.endswith(']')) or (s.startswith('{') and s.endswith('}')):
+                        try:
+                            return json.loads(s)
+                        except Exception:
+                            return x
+                return x
+            parsed[col] = parsed[col].map(_maybe_json)
+    return parsed
+
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Small guard to enforce session credentials for every Google call
+
+def _require_creds():
+    """
+    Require an OAuth Credentials object in session.
+    This keeps behavior deterministic and supports your 2-hour auto-logout.
+    """
+    creds = st.session_state.get("credentials")
+    if not creds:
+        st.error("Please sign in again.")
+        st.stop()
+    return creds
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Basic calendar helpers (pure UI/Session logic)
+
+def _is_primary(cal_id: str) -> bool:
+    for c in st.session_state.get("calendars", []):
+        if c["id"] == cal_id:
+            return bool(c.get("primary"))
+    return cal_id == "primary"
+
+
+def _calendar_label(cal: dict) -> str:
+    return f"{cal.get('summary', cal['id'])} · {cal['id']}"
+
+
+def _calendar_name_for_id(cal_id: str) -> str:
+    for c in st.session_state.get("calendars", []):
+        if c["id"] == cal_id:
+            return c.get("summary", cal_id)
+    return cal_id
+
+
+def _calendar_timezone_for_id(cal_id: str) -> str:
+    for c in st.session_state.get("calendars", []):
+        if c["id"] == cal_id:
+            return (c.get("timeZone") or "").strip()
+    return ""
+
+
+def _primary_calendar_id() -> str:
+    for c in st.session_state.get("calendars", []):
+        if c.get("primary"):
+            return c["id"]
+    return st.session_state.get("active_calendar", "primary")
+
+
+def _set_active_calendar(cal_id: str, *, sync_widget: bool = False) -> None:
+    """Sync active calendar selection across state, optionally updating widgets."""
+    st.session_state["active_calendar"] = cal_id
+
+    if not sync_widget:
+        return
+
+    ids = [c["id"] for c in st.session_state.get("calendars", [])]
+    if cal_id in ids and "evb_cal_select" in st.session_state:
+        st.session_state["evb_cal_select"] = ids.index(cal_id)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# UX banners / flows
+
+def _primary_calendar_banner(service):
+    """
+    Warn if user is about to bulk-create on Primary calendar.
+    Offer a one-click create+switch to a fresh calendar.
+    """
+    cal_id = st.session_state.get("active_calendar", "primary")
+    if not cal_id:
+        return
+
+    if _is_primary(cal_id):
+        st.warning(
+            "You're targeting your **Primary** calendar. For bulk/testing, create and use a separate calendar.",
+            icon="⚠️",
+        )
+        c1, c2 = st.columns([0.7, 0.3])
+        with c1:
+            new_name = st.text_input("New calendar name", value=DEFAULT_NAME, key="warn_newcal_name")
+        with c2:
+            if st.button("Create & switch", key="warn_create_switch"):
+                try:
+                    creds = _require_creds()
+                    tz = create_mod.get_user_default_timezone(creds)
+                    new_id = create_mod.create_calendar(creds, new_name, time_zone=tz)
+                    _refresh_calendars(service)
+                    _set_active_calendar(new_id, sync_widget=True)
+                    st.session_state["usage_stats"]["last_action"] = f"Created calendar {new_name}"
+                    st.success(f"Created and selected `{_calendar_name_for_id(new_id)}`.")
+                except Exception as e:
+                    st.error(f"Failed to create calendar: {e}")
+    else:
+        st.info("Best practice: use a dedicated calendar for imports/bulk operations.", icon="💡")
+
+
+def _role_for_calendar(cal_id: str) -> str:
+    for c in st.session_state.get("calendars", []):
+        if c["id"] == cal_id:
+            return (c.get("accessRole") or "").lower()
+    return ""
+
+
+# sync calendar
+def _sync_preview_to_active_calendar():
+    """
+    If the user switches the active calendar, keep the Preview rows consistent:
+    - strip any row-level calendar hints so the selected calendar is used
+    - for TIMED rows (have event_time) with a blank timezone, default to the
+      newly selected calendar's timezone
+    """
+    active_id = st.session_state.get("active_calendar")
+    if not active_id:
+        return
+
+    prev_id = st.session_state.get("_prev_active_calendar")
+    if prev_id == active_id:
+        return  # nothing changed
+
+    df = st.session_state.get("parsed_events_df")
+    if df is None or df.empty:
+        st.session_state["_prev_active_calendar"] = active_id
+        st.session_state["_prev_active_calendar_tz"] = _calendar_timezone_for_id(active_id)
+        return
+
+    # 1) remove any per-row calendar hints so bulk creation uses the selected calendar
+    for col in ("calendar_id", "google_calendar_id", "calendar_name"):
+        if col in df.columns:
+            df = df.drop(columns=[col])
+
+    # 2) for timed rows with no tz, default tz to the new calendar's tz
+    cal_tz = _calendar_timezone_for_id(active_id)
+    if cal_tz and "event_time" in df.columns:
+        if "timezone" not in df.columns:
+            df["timezone"] = ""
+        timed_mask = df["event_time"].fillna("").astype(str).str.strip() != ""
+        blank_tz   = df["timezone"].fillna("").astype(str).str.strip() == ""
+        df.loc[timed_mask & blank_tz, "timezone"] = cal_tz  # all-day rows remain tz-blank
+
+    st.session_state["parsed_events_df"] = df
+    st.session_state["_prev_active_calendar"] = active_id
+    st.session_state["_prev_active_calendar_tz"] = cal_tz
+
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Session state + notifications
+
+def _init_session_defaults():
+    st.session_state.setdefault("undo_stack", [])              # list of batches (each may span multiple calendars)
+    st.session_state.setdefault("created_batches", [])         # mirror for inspection/export
+    st.session_state.setdefault("usage_stats", {"events_added": 0, "last_action": "—"})
+    st.session_state.setdefault("parsed_events_df", pd.DataFrame())
+    st.session_state.setdefault("active_calendar", "primary")
+    st.session_state.setdefault("llm_enabled", False)
+    st.session_state.setdefault("billing_ok", False)
+    st.session_state.setdefault("calendars", [])               # cached calendars (with timeZone/accessRole)
+
+
+def _success(msg: str):
+    st.session_state["usage_stats"]["last_action"] = msg
+    if st.session_state.get("_last_notice") == ("success", msg):
+        return
+    st.session_state["_last_notice"] = ("success", msg)
+    st.success(msg)
+
+
+def _error(msg: str):
+    st.session_state["usage_stats"]["last_action"] = f"Error: {msg}"
+    if st.session_state.get("_last_notice") == ("error", msg):
+        return
+    st.session_state["_last_notice"] = ("error", msg)
+    st.error(msg)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Delete/unsubscribe confirmation UI
+
+def _ask_confirm_delete(cal_id: str, mode: str):
+    """mode: 'unsubscribe' or 'delete'"""
+    st.session_state["_pending_cal_del"] = {"id": cal_id, "mode": mode}
+
+
+def _maybe_render_delete_modal(service):
+    data = st.session_state.get("_pending_cal_del")
+    if not data:
+        return
+    cal_id, mode = data["id"], data["mode"]
+    cal_name = _calendar_name_for_id(cal_id)
+
+    with st.container(border=True):
+        if mode == "delete":
+            st.error(
+                f"Delete calendar **{cal_name}**?\n\n"
+                "This will permanently delete the calendar **and all events on it** for everyone. "
+                "This cannot be undone."
+            )
+        else:
+            st.warning(
+                f"Remove **{cal_name}** from your list?\n\n"
+                "This will unsubscribe it from your account (events remain for others)."
+            )
+
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Confirm", type="primary", key="confirm_cal_del"):
+                try:
+                    creds = _require_creds()
+                    if mode == "delete":
+                        create_mod.delete_calendar(creds, cal_id)
+                        _success(f"Deleted calendar: `{cal_name}`")
+                    else:
+                        create_mod.unsubscribe_calendar(creds, cal_id)
+                        _success(f"Removed from your list: `{cal_name}`")
+
+                    # Refresh list & fix selection if needed
+                    _refresh_calendars(service)
+                    if st.session_state.get("active_calendar") == cal_id:
+                        _set_active_calendar(_primary_calendar_id(), sync_widget=True)
+                except Exception as e:
+                    _error(f"Failed: {e}")
+                finally:
+                    st.session_state.pop("_pending_cal_del", None)
+
+        with c2:
+            if st.button("Cancel", key="cancel_cal_del"):
+                st.session_state.pop("_pending_cal_del", None)
+
+
+def _render_manage_calendars_ui(service):
+    st.caption("Manage calendars")
+    for cal in _get_calendars_cached(service):
+        cal_id = cal["id"]
+        name = cal.get("summary", cal_id)
+        role = (cal.get("accessRole") or "").lower()
+        tz = cal.get("timeZone") or "—"
+
+        c1, c2, c3, c4 = st.columns([0.55, 0.2, 0.15, 0.10])
+        with c1:
+            st.write(f"**{name}**")
+            st.caption(f"`{cal_id}`")
+        with c2:
+            st.caption(f"Role: `{role}`  ·  TZ: `{tz}`")
+        with c3:
+            # Decide which action is available
+            can_delete = (role == "owner") and (not cal.get("primary", False))
+            can_unsub  = (role in ("reader", "writer", "freebusyreader")) or (role == "owner" and not can_delete)
+
+            if can_delete:
+                st.button("🗑️ Delete calendar", key=f"del_{cal_id}",
+                          on_click=_ask_confirm_delete, args=(cal_id, "delete"))
+            elif can_unsub:
+                st.button("Remove from my list", key=f"unsub_{cal_id}",
+                          on_click=_ask_confirm_delete, args=(cal_id, "unsubscribe"))
+            else:
+                st.caption("—")
+        with c4:
+            # Optional: quick switch
+            st.button(
+                "Use",
+                key=f"use_{cal_id}",
+                on_click=_set_active_calendar,
+                kwargs={"cal_id": cal_id, "sync_widget": True},
+            )
+
+    _maybe_render_delete_modal(service)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Calendar caching (UI owns session cache, project_code does network)
+
+def _refresh_calendars(service):
+    """
+    Pull the user's calendars using project_code (no Streamlit there),
+    then cache them in session for UI use.
+    """
+    creds = _require_creds()
+    cals = create_mod.list_calendars(creds)
+    st.session_state["calendars"] = cals
+    if cals and not any(c["id"] == st.session_state.get("active_calendar") for c in cals):
+        _set_active_calendar(cals[0]["id"])
+    return cals
+
+
+def _get_calendars_cached(service):
+    if "calendars" not in st.session_state or not st.session_state["calendars"]:
+        return _refresh_calendars(service)
+    return st.session_state["calendars"]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Input sanitation & normalization
+
+def _str_or_empty(x) -> str:
+    """Return a trimmed string; '' for None/NaN; stringify other scalars safely."""
+    if isinstance(x, str):
+        return x.strip()
+    if x is None:
+        return ""
+    if isinstance(x, float) and math.isnan(x):
+        return ""
+    return str(x).strip()
+
+
+def _sanitize_rows(rows: list[dict]) -> list[dict]:
+    """Fix common issues from pasted/uploaded/edited rows (NaN, key typos, types)."""
+    out = []
+    for r in rows:
+        rr = dict(r)
+
+        # Key typo commonly seen
+        if "location:" in rr and "location" not in rr:
+            rr["location"] = rr.pop("location:") or ""
+
+        # String-ish fields
+        for k in ["title", "description", "calendar_id", "calendar_name",
+                  "google_calendar_id", "event_date", "event_time", "end_time",
+                  "end_date", "timezone", "location", "recurrence", "user_email"]:
+            if k in rr:
+                rr[k] = _str_or_empty(rr.get(k))
+
+        # List fields
+        if not isinstance(rr.get("notifications"), list):
+            rr["notifications"] = [] if rr.get("notifications") in (None, "") else rr.get("notifications") or []
+        if not isinstance(rr.get("invitees"), list):
+            rr["invitees"] = [] if rr.get("invitees") in (None, "") else rr.get("invitees") or []
+
+        out.append(rr)
+    return out
+
+
+def _normalize_all_day_rows(rows: list[dict]) -> list[dict]:
+    """
+    If event_time is blank -> all-day:
+      - event_time = ''
+      - timezone   = '' (ignored by backend for date-only)
+      - end_date defaults to event_date (backend will add +1 exclusive end)
+    """
+    out = []
+    for r in rows:
+        rr = dict(r)
+        t = _str_or_empty(rr.get("event_time"))
+        d = _str_or_empty(rr.get("event_date"))
+        if not t and d:
+            rr["event_time"] = ""
+            rr["end_time"] = ""      # clear end_time for all-day
+            rr["timezone"] = ""
+            if not _str_or_empty(rr.get("end_date")):
+                rr["end_date"] = d
+        out.append(rr)
+    return out
+
+
+def _apply_default_tz_for_timed(rows: list[dict], cal_tz: str) -> list[dict]:
+    """For rows with a time, default timezone to the calendar's tz when missing."""
+    cal_tz = _str_or_empty(cal_tz)
+    if not cal_tz:
+        return rows
+    out = []
+    for r in rows:
+        rr = dict(r)
+        t = _str_or_empty(rr.get("event_time"))
+        tz = _str_or_empty(rr.get("timezone"))
+        if t and not tz:
+            rr["timezone"] = cal_tz
+        out.append(rr)
+    return out
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Calendar resolution (per-row) & grouping
+
+def _looks_like_calendar_id(val: str) -> bool:
+    v = (val or "").lower()
+    return "@group.calendar.google.com" in v or v.endswith("@gmail.com") or v.endswith("@google.com")
+
+
+def _resolve_calendar_id_for_row(row: dict, selected_id: str, calendars: list[dict]) -> tuple[Optional[str], Optional[str]]:
+    """
+    Resolve the row's calendar to a real calendarId.
+    Returns (calendar_id, error_message). If no calendar fields present, default to selected_id.
+    No silent overrides: if a name cannot be resolved, returns (None, 'why').
+    """
+    raw = _str_or_empty(row.get("google_calendar_id")) or _str_or_empty(row.get("calendar_id")) or _str_or_empty(row.get("calendar_name"))
+    if not raw:
+        return selected_id, None
+
+    if raw.lower() == "primary":
+        return _primary_calendar_id(), None
+
+    if _looks_like_calendar_id(raw):
+        match = next((c for c in calendars if c["id"] == raw), None)
+        if not match:
+            return None, f"Unknown calendar id '{raw}'"
+        if (match.get("accessRole") or "") not in ("owner", "writer"):
+            return None, f"No write access to '{_calendar_label(match)}'"
+        return raw, None
+
+    matches = [c for c in calendars if _str_or_empty(c.get("summary")) == raw]
+    if not matches:
+        return None, f"Calendar named '{raw}' not found"
+    writable = [c for c in matches if (c.get("accessRole") or "") in ("owner", "writer")]
+    chosen = (writable or matches)[0]
+    return chosen["id"], None
+
+
+def _group_rows_by_calendar(rows: list[dict], selected_id: str, calendars: list[dict]):
+    """
+    Group rows by resolved calendar id, collecting errors for unresolved/unauthorized names/ids.
+    """
+    groups: Dict[str, List[dict]] = {}
+    errors: List[str] = []
+    info_counts: Dict[str, int] = {}
+    for r in rows:
+        cal_id, err = _resolve_calendar_id_for_row(r, selected_id, calendars)
+        if err:
+            errors.append(err)
+            continue
+        rr = dict(r)
+        rr.pop("google_calendar_id", None)
+        rr.pop("calendar_id", None)
+        rr.pop("calendar_name", None)
+        groups.setdefault(cal_id, []).append(rr)
+    for cid, lst in groups.items():
+        info_counts[cid] = len(lst)
+    return groups, errors, info_counts
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Auth screen (Cloud flow)
+
+def show_login_page():
+    """
+    Cloud OAuth flow using streamlit-free helpers in project_code.auth.
+    - If a code is present in the URL, exchange it for credentials (same tab).
+    - Else, render exactly one "Continue with Google" link (same tab).
+    """
+    st.title("😪 LazyCal 🗓️")
+    st.write("🔐 Sign in to connect your Google Calendar.")
+
+    cfg = st.secrets["google_oauth"]
+    client_id = cfg["client_id"]
+    client_secret = cfg["client_secret"]
+    
+    # Dynamic redirect URI based on mode
+    app_cfg = st.secrets.get("app", {})
+    mode = app_cfg.get("mode", "local")
+    
+    redirect_uri = (
+        app_cfg.get("local_redirect_uri", "http://localhost:8501/")
+        if mode == "local"
+        else app_cfg.get("cloud_redirect_uri", "https://lazycal.streamlit.app/")
+    )
+
+    # Already signed in?
+    creds = st.session_state.get("credentials")
+    if creds:
+        try:
+            creds = auth.refresh_if_needed(creds)  # harmless if still valid
+        except Exception:
+            pass
+        st.session_state["credentials"] = creds
+        st.session_state["service"] = auth.build_calendar_service(creds)
+        st.session_state["user_email"] = auth.get_authenticated_email(st.session_state["service"], creds)
+        st.rerun()
+
+    # Handle redirect (code) first
+    q = st.query_params
+    code = q.get("code")
+    code = code[0] if isinstance(code, list) else code
+    if code:
+        try:
+            creds = auth.web_exchange_code(client_id, client_secret, redirect_uri, code)
+            st.session_state["credentials"] = creds
+            st.session_state["service"] = auth.build_calendar_service(creds)
+            st.session_state["user_email"] = auth.get_authenticated_email(st.session_state["service"], creds)
+            try:
+                st.query_params.clear()
+            except Exception:
+                pass
+            st.rerun()
+        except Exception:
+            st.error("Sign-in failed. Please click Continue with Google again.")
+
+    # No code yet — create the auth URL once and render exactly ONE link (same tab)
+    if "oauth_auth_url" not in st.session_state or "oauth_state" not in st.session_state:
+        auth_url, state = auth.web_authorization_url(client_id, client_secret, redirect_uri)
+        st.session_state["oauth_auth_url"] = auth_url
+        st.session_state["oauth_state"] = state
+
+    auth_url = st.session_state["oauth_auth_url"]
+
+    st.link_button("Continue with Google", auth_url, width='stretch', type="primary")
+    st.caption("You will be redirected to Google to authorize access.")
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Home
+
+def show_home(service):
+    _init_session_defaults()
+
+    user = st.session_state.get("user_email") or "Unknown user"
+    st.title("📅 Calendar Automation")
+    st.caption("Google Calendar • paste / upload • optional LLM parsing • undo batches")
+
+    with st.container(border=True):
+        c1, c2 = st.columns([2, 1])
+        with c1:
+            active_id = st.session_state.get("active_calendar", "primary")
+            active_name = _calendar_name_for_id(active_id)
+            active_tz = _calendar_timezone_for_id(active_id) or "—"
+            st.markdown(
+                f"**Signed in as:** `{user}`  \n"
+                f"**Active calendar:** `{active_name}` · `{active_id}`  \n"
+                f"**Time zone:** `{active_tz}`"
+            )
+            st.markdown("### How it works")
+            st.markdown(
+                "- Choose an input mode: natural language (LLM), `.txt` upload, or structured paste.\n"
+                "- Preview and edit events in a table before creating.\n"
+                "- Create events in groups (by calendar) with one click.\n"
+                "- Undo the last batch if needed."
+            )
+        with c2:
+            stats = st.session_state["usage_stats"]
+            st.metric("Events added (this session)", stats["events_added"])
+            st.caption(f"Last action: {stats['last_action']}")
+
+    st.divider()
+    st.subheader("Your calendars")
+    _sync_preview_to_active_calendar()
+    calendars = _get_calendars_cached(service)
+    if calendars:
+        ids = [c["id"] for c in calendars]
+        labels = [_calendar_label(c) for c in calendars]
+        try:
+            idx = ids.index(st.session_state["active_calendar"])
+        except ValueError:
+            idx = 0
+        choice = st.selectbox(
+            "Select a calendar",
+            options=list(range(len(ids))),
+            format_func=lambda i: labels[i],
+            index=idx
+        )
+        _set_active_calendar(ids[choice])
+        _primary_calendar_banner(service)
+    else:
+        st.info("No calendars found. Use Event Builder to create one.")
+
+    with st.expander("Create a new calendar"):
+        new_name = st.text_input("Calendar name", placeholder=DEFAULT_NAME)
+        if st.button("Create / ensure", key="ensure_calendar_btn"):
+            try:
+                creds = _require_creds()
+                existing = _get_calendars_cached(service)
+                match = next((c for c in existing if c.get("summary") == new_name), None)
+                if match:
+                    cal_id = match["id"]
+                else:
+                    tz = create_mod.get_user_default_timezone(creds)
+                    cal_id = create_mod.create_calendar(creds, new_name, time_zone=tz)
+                _refresh_calendars(service)
+                _sync_preview_to_active_calendar()
+                _set_active_calendar(cal_id, sync_widget=True)
+                _success(f"Calendar ready: `{new_name}` · `{cal_id}`")
+            except Exception as e:
+                _error(f"Failed to create/ensure calendar: {e}")
+
+    st.subheader("Upcoming events")
+    try:
+        items = _fetch_upcoming_events(service, st.session_state["active_calendar"], max_count=50)
+        df = _events_to_df(items)
+        if df.empty:
+            st.caption("No upcoming events.")
+        else:
+            st.dataframe(df, width='stretch', height=360)
+            st.caption("Tip: delete-on-hover will be added later.")
+    except Exception as e:
+        _error(f"Failed to load events: {e}")
+
+    st.divider()
+    if st.button("🧱 Open Event Builder", type="primary"):
+        st.session_state["nav"] = "Event Builder"
+
+
+def _fetch_upcoming_events(service, calendar_id: str, max_count: int = 50) -> List[Dict[str, Any]]:
+    now_iso = dt.datetime.utcnow().isoformat() + "Z"
+    resp = service.events().list(
+        calendarId=calendar_id,
+        timeMin=now_iso,
+        singleEvents=True,
+        orderBy="startTime",
+        maxResults=max_count,
+        fields="items(id,summary,start,end,description,location)"
+    ).execute()
+    return resp.get("items", [])
+
+
+def _events_to_df(items: List[Dict[str, Any]]) -> pd.DataFrame:
+    rows = []
+    for it in items:
+        start = it.get("start", {})
+        end = it.get("end", {})
+        rows.append({
+            "event_id": it.get("id"),
+            "title": it.get("summary"),
+            "start": start.get("dateTime") or start.get("date"),
+            "end": end.get("dateTime") or end.get("date"),
+            "location": it.get("location"),
+            "description": it.get("description"),
+        })
+    return pd.DataFrame(rows)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Event Builder
+
+def _coerce_root_to_list(obj: Any) -> List[Dict[str, Any]]:
+    if isinstance(obj, list):
+        return obj
+    if isinstance(obj, dict):
+        return [obj]
+    raise ValueError("JSON must be a list of dicts or a single dict.")
+
+
+def _load_json_into_preview(raw_text: str):
+    """Lenient ingest: accept list or single dict; on JSON error, show banner."""
+    if not raw_text or not raw_text.strip():
+        _error("Paste JSON first.")
+        return
+    try:
+        data = json.loads(raw_text)
+        records = _coerce_root_to_list(data)
+        df = pd.DataFrame(records)
+        if df.empty:
+            _error("No records found in JSON.")
+            return
+
+        # Autofill timezone for TIMED rows using the currently selected calendar
+        cal_id = st.session_state.get("active_calendar") or "primary"
+        cal_tz = _calendar_timezone_for_id(cal_id) or ""   # preview mirrors selection
+        if "event_time" in df.columns:
+            if "timezone" not in df.columns:
+                df["timezone"] = ""
+            timed = df["event_time"].fillna("").astype(str).str.strip() != ""
+            blank_tz = df["timezone"].fillna("").astype(str).str.strip() == ""
+            if cal_tz:
+                df.loc[timed & blank_tz, "timezone"] = cal_tz  # keep all-day rows tz-blank
+
+        st.session_state["parsed_events_df"] = df
+        _success(f"Loaded {len(df)} record(s) into preview.")
+    except Exception as e:
+        _error(f"Invalid JSON: {e}")
+
+
+def show_event_builder(service):
+    _init_session_defaults()
+    
+    st.title("🧱 Event Builder")
+    st.caption("Paste, upload, or describe your events. Preview, edit, and create by calendar groups.")
+    if st.button("Debug: who am I?"):
+        try:
+            assert_service_has_identity(service)  # this will refresh if needed and call userinfo
+            st.success("Authenticated ✅ (see server logs for email)")
+        except AssertionError as e:
+            st.error(f"Auth problem: {e}")
+        except Exception as e:
+            st.error(f"Auth check failed: {e}")
+    # Calendar target + ensure
+    with st.container(border=True):
+        calendars = _get_calendars_cached(service)
+        ids = [c["id"] for c in calendars] or ["primary"]
+        labels = [_calendar_label(c) for c in calendars] or ["primary"]
+
+        try:
+            idx = ids.index(st.session_state["active_calendar"])
+        except ValueError:
+            idx = 0
+
+        choice = st.selectbox(
+            "Target calendar (used when a row doesn't specify one)",
+            options=list(range(len(ids))),
+            format_func=lambda i: labels[i],
+            index=idx,
+            key="evb_cal_select",
+        )
+        _set_active_calendar(ids[choice])
+        _sync_preview_to_active_calendar()
+        _primary_calendar_banner(service)
+        _render_manage_calendars_ui(service)
+
+        new_name = st.text_input(
+            "Create new calendar (optional)",
+            placeholder=DEFAULT_NAME,
+            key="evb_new_cal_name",
+        )
+        if st.button("Create / ensure calendar", key="evb_create_cal_btn"):
+            try:
+                creds = _require_creds()
+                existing = _get_calendars_cached(service)
+                match = next((c for c in existing if c.get("summary") == new_name), None)
+                if match:
+                    cal_id = match["id"]
+                else:
+                    tz = create_mod.get_user_default_timezone(creds)
+                    cal_id = create_mod.create_calendar(creds, new_name, time_zone=tz)
+                _refresh_calendars(service)
+                _set_active_calendar(cal_id, sync_widget=True)
+                _success(f"Calendar ready: `{new_name}` · `{cal_id}`")
+            except Exception as e:
+                _error(f"Failed: {e}")
+
+        st.toggle("Enable LLM parsing (billing applies)", key="evb_llm_enabled")
+
+    # Input tabs
+    tab1, tab2, tab3 = st.tabs(["Natural Language (LLM)", "Upload .txt", "Structured paste"])
+
+    with tab1:
+        st.markdown("Describe your events in plain English (Locally hosted model is still in development).")
+        st.markdown("""
+        **Prompt-Engineered Models:**
+        You can use either Gemini or ChatGPT!
+        For more information, you can ask the models "How do I use you?"
+        - [Gemini Model](https://gemini.google.com/gem/18-IbkHbrqKkymmHJmirEUGfulE2BujaF?usp=sharing)
+        - [ChatGPT Model](https://chatgpt.com/g/g-68b888b9f56481919ecd05f8c647130d-event-parser-assistant)
+        """)
+        st.info('Example: "Study group Monday 7-8pm at DC Library; Coffee with Maya Tue 9:30am."')
+        nl = st.text_area("Your description", height=140, key="evb_nl")
+        st.checkbox("I agree to pay for LLM parsing.", key="evb_billing_ok")
+        if st.button("Generate structured events with LLM", key="evb_generate_llm"):
+            if not st.session_state["evb_llm_enabled"]:
+                _error("Enable LLM parsing first.")
+            elif not st.session_state["evb_billing_ok"]:
+                _error("Please agree to pay for LLM parsing.")
+            elif not nl.strip():
+                _error("Please enter a description.")
+            else:
+                _error("LLM parsing is not enabled yet. (Stub)")
+
+    with tab2:
+        up = st.file_uploader("Upload a .txt containing JSON", type=["txt"], key="evb_uploader")
+        if up is not None and st.button("Parse uploaded file", key="evb_parse_upload"):
+            try:
+                raw = up.read().decode("utf-8")
+                _load_json_into_preview(raw)
+            except Exception as e:
+                _error(f"Failed to read file: {e}")
+
+    with tab3:
+        st.markdown("**Paste event records** as JSON (list of dicts or a single dict).")
+        example = [{
+            "title": "Sample Event",
+            "event_date": dt.date.today().isoformat(),
+            "description": "Optional",
+            "event_time": "10:00",        # omit for all-day
+            "end_time": "10:45",          # optional; default applied if missing
+            "end_date": dt.date.today().isoformat(),
+            "notifications": [],
+            "invitees": [],
+            "location": "",
+            "recurrence": ""              # e.g., "RRULE:FREQ=WEEKLY;COUNT=8"
+        }]
+        st.caption("Tip: leave `event_time` blank for an **all-day** event. If you provide `event_time` without `end_time`, a default duration is applied.")
+        st.code(json.dumps(example, indent=2), language="json")
+        raw = st.text_area("Paste here", height=220, placeholder="[\n  {...}\n]", key="evb_paste")
+        if st.button("Parse pasted JSON", key="evb_parse_paste"):
+            _load_json_into_preview(raw)
+
+    # Preview & edit (outside tabs)
+    st.divider()
+    st.subheader("Preview & edit")
+
+    # --- Preview & edit (outside tabs) ---
+    # 1) Keep calendar_id/timezone in the DF; hide only true internals
+    display_df = st.session_state["parsed_events_df"].copy()
+    for col in ["service", "google_calendar_id", "calendar_name", "user_email"]:  # CHANGED: removed 'timezone', 'calendar_id'
+        if col in display_df.columns:
+            display_df = display_df.drop(columns=[col])
+
+    selected_id = st.session_state.get("active_calendar", "primary")
+    st.caption(
+        f"Selected calendar: `{_calendar_name_for_id(selected_id)}` · `{selected_id}`  \n"
+        f"Time zone: `{_calendar_timezone_for_id(selected_id) or '—'}`"
+    )
+
+    # Optional: show a read-only label so users see where blanks will go
+    display_df.insert(0, "target_calendar", f"{_calendar_name_for_id(selected_id)}")
+
+    editable_df, json_cols = _to_streamlit_editable(display_df)
+    edited = st.data_editor(
+        editable_df,
+        width='stretch',
+        height=360,
+        num_rows="dynamic",
+        key="evb_editor",
+        column_config={
+            "target_calendar": st.column_config.TextColumn(disabled=True),
+            "calendar_id":     st.column_config.TextColumn(disabled=True),  # CHANGED
+            "timezone":        st.column_config.TextColumn(disabled=True),  # CHANGED
+        },
+    )
+    edited = _from_streamlit_editable(edited, json_cols)
+
+    # Sync back ONLY editable columns (unchanged)
+    base_df = st.session_state["parsed_events_df"]
+    for col in edited.columns:
+        if col in base_df.columns:
+            base_df[col] = edited[col]
+    st.session_state["parsed_events_df"] = base_df
+
+    # --- Actions ---
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("🚀 Create events", key="evb_create_events"):
+            df_to_create = st.session_state["parsed_events_df"].copy()
+
+            # 2) (Optional) coalesce blank calendar_id to the active selection
+            if "calendar_id" not in df_to_create.columns:
+                df_to_create["calendar_id"] = ""
+            mask_cal = df_to_create["calendar_id"].isna() | (df_to_create["calendar_id"].astype(str).str.strip() == "")
+            df_to_create.loc[mask_cal, "calendar_id"] = selected_id
+
+            # 3) DO NOT fill timezone here; let _create_events_batch apply defaults per calendar   # CHANGED
+            # (Your _create_events_batch uses _apply_default_tz_for_timed + cal_tz)
+
+            # (Optional) name for logs/UX
+            df_to_create["calendar_name"] = _calendar_name_for_id(selected_id)
+
+            # If downstream expects google_calendar_id, set it explicitly
+            if "google_calendar_id" not in df_to_create.columns:
+                df_to_create["google_calendar_id"] = df_to_create["calendar_id"]
+
+            _create_events_batch(service, df_to_create)
+
+    with c2:
+        if st.button("🗑️ Undo last import", key="evb_undo"):
+            _undo_last_batch(service)
+
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Create / Undo logic
+
+def _create_events_batch(service, df: pd.DataFrame):
+    """
+    Create events in groups (by calendar). Validates calendars, normalizes rows,
+    and records created ids for undo.
+    """
+    if df is None or df.empty:
+        _error("Load records first.")
+        return
+
+    email = st.session_state.get("user_email") or "unknown@example.com"
+    selected_cal = st.session_state.get("active_calendar") or "primary"
+    calendars = _get_calendars_cached(service)
+
+    # Prep rows
+    rows = df.to_dict(orient="records")
+    rows = _sanitize_rows(rows)
+    rows = _normalize_all_day_rows(rows)
+
+    # Resolve calendars per row
+    groups, errors, info_counts = _group_rows_by_calendar(rows, selected_cal, calendars)
+    if errors:
+        msg = " • " + "\n • ".join(sorted(set(errors)))
+        _error(f"Some rows reference calendars that can't be used:\n{msg}")
+        return
+    if len(info_counts) > 1:
+        summaries = [f"{_calendar_name_for_id(cid)} ({cnt})" for cid, cnt in info_counts.items()]
+        st.info("Creating by calendar: " + ", ".join(summaries))
+
+    creds = _require_creds()
+
+    total_created = 0
+    batch_groups = []
+
+    for cal_id, rows_for_cal in groups.items():
+        # Default TZ for TIMED rows to THIS calendar's tz (prevents UTC fallback)
+        cal_tz = _calendar_timezone_for_id(cal_id) or create_mod.get_user_default_timezone(creds)
+        rows_for_cal = _apply_default_tz_for_timed(rows_for_cal, cal_tz)
+
+        created_refs: List[Dict[str, Any]] = []
+
+        for r in rows_for_cal:
+            try:
+                is_timed = bool(_str_or_empty(r.get("event_time")))
+                tz_to_use = (r.get("timezone") or cal_tz) if is_timed else ""  # no tz for all-day
+                created = create_mod.create_single_event(
+                    service=service,
+                    calendar_id=cal_id,
+                    title=r.get("title") or "Untitled",
+                    description=r.get("description") or "",
+                    event_date=r.get("event_date") or "",
+                    event_time=r.get("event_time") or "",
+                    end_time=r.get("end_time") or "",
+                    end_date=r.get("end_date") or r.get("event_date") or "",
+                    timezone=tz_to_use,
+                    notifications=r.get("notifications") or [],
+                    invitees=r.get("invitees") or [],
+                    location=r.get("location", ""),
+                    recurrence=r.get("recurrence"),
+                    user_email=email,
+                    send_updates="none",
+                )
+
+                ev_id = (created or {}).get("id")
+                if ev_id:
+                    created_refs.append({"id": ev_id, "iCalUID": (created or {}).get("iCalUID")})
+            except Exception as e_single:
+                _error(f"Failed to create an event on `{_calendar_name_for_id(cal_id)}`: {e_single}")
+                # continue with other rows
+
+        total_created += len(created_refs)
+        if created_refs:
+            batch_groups.append({"calendar_id": cal_id, "refs": created_refs})
+
+    if total_created == 0:
+        _error("No events were created.")
+        return
+
+    # Record batch for undo
+    batch = {"groups": batch_groups}
+    st.session_state["undo_stack"].append(batch)
+    st.session_state["created_batches"].append(batch)
+    st.session_state["usage_stats"]["events_added"] += total_created
+    _success(f"Created {total_created} event(s) across {len(batch_groups)} calendar(s).")
+
+
+def _undo_last_batch(service):
+    """
+    Delete the most recently created batch (across one or more calendars).
+    Resilient to 404 via iCalUID lookup.
+    """
+    if not st.session_state.get("undo_stack"):
+        _error("Nothing to undo.")
+        return
+
+    batch = st.session_state["undo_stack"].pop()
+    groups = batch.get("groups") or []
+
+    from googleapiclient.errors import HttpError  # type: ignore
+    deleted = 0
+    not_found_total = 0
+    remainder_groups = []
+
+    for g in groups:
+        cal_id = g.get("calendar_id")
+        refs = g.get("refs") or []
+        unfound_refs = []
+        for ref in refs:
+            eid = ref.get("id")
+            iuid = ref.get("iCalUID")
+            try:
+                service.events().delete(calendarId=cal_id, eventId=eid, sendUpdates="none").execute()
+                deleted += 1
+                continue
+            except HttpError as he:
+                try:
+                    if he.resp.status == 404 and iuid:
+                        resp = service.events().list(calendarId=cal_id, iCalUID=iuid, maxResults=5, singleEvents=True).execute()
+                        items = resp.get("items", [])
+                        if items:
+                            for it in items:
+                                service.events().delete(calendarId=cal_id, eventId=it["id"], sendUpdates="none").execute()
+                                deleted += 1
+                            continue
+                except Exception:
+                    pass
+                not_found_total += 1
+                unfound_refs.append(ref)
+            except Exception:
+                not_found_total += 1
+                unfound_refs.append(ref)
+        if unfound_refs:
+            remainder_groups.append({"calendar_id": cal_id, "refs": unfound_refs})
+
+    if remainder_groups:
+        st.session_state["undo_stack"].append({"groups": remainder_groups})
+
+    st.session_state["usage_stats"]["events_added"] = max(0, st.session_state["usage_stats"]["events_added"] - deleted)
+
+    if deleted and not remainder_groups:
+        _success(f"Deleted {deleted} event(s).")
+    elif deleted and remainder_groups:
+        _error(f"Deleted {deleted} event(s), but {not_found_total} could not be found for undo.")
+    else:
+        _error("Undo failed: no matching events were found to delete.")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# New Dashboard Components
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _get_calendar_events_for_view(service, cal_id: str, start_date: dt.date, end_date: dt.date) -> list[dict]:
+    """Fetch events for the monthly view."""
+    time_min = start_date.isoformat() + "T00:00:00Z"
+    time_max = end_date.isoformat() + "T23:59:59Z"
+    
+    try:
+        events_result = service.events().list(
+            calendarId=cal_id,
+            timeMin=time_min,
+            timeMax=time_max,
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute()
+        items = events_result.get('items', [])
+        
+        # Convert to streamlit_calendar format
+        # { title, start, end, resourceId, etc }
+        cal_events = []
+        for event in items:
+            start = event.get('start')
+            end = event.get('end')
+            
+            # Determine validation color/style if needed, mostly just standard now
+            evt = {
+                "title": event.get('summary', '(No Title)'),
+                "start": start.get('dateTime') or start.get('date'),
+                "end": end.get('dateTime') or end.get('date'),
+                "id": event.get('id'),
+                "extendedProps": {
+                    "description": event.get('description', ''),
+                    "location": event.get('location', '')
+                }
+                # "backgroundColor": "#FF6C6C" if ... else ...
+            }
+            cal_events.append(evt)
+        return cal_events
+
+    except Exception as e:
+        st.error(f"Error fetching events: {e}")
+        return []
+
+
+def render_chat_column(service):
+    """
+    Left column: Chat input and instructions.
+    Matches 'Chat with your calendar agent' from sketch.
+    """
+    st.subheader("Chat")
+    
+    # Instructions / Context
+    st.caption("Chat with your calendar agent.")
+    
+    # 1. Chat input area
+    user_input = st.text_area(
+        "Type natural language request...", 
+        height=150, 
+        key="dash_chat_input",
+        placeholder="E.g., 'Schedule a dentist appointment next Tuesday at 2pm'"
+    )
+    
+    c1, c2 = st.columns([1, 1])
+    with c1:
+        # User mentioned they use links for now, but we prepare the UI
+        if st.button("Import / Parse", key="dash_import_btn", type="primary", use_container_width=True):
+             if user_input.strip():
+                 # For now, just load into preview like "Event Builder" did, 
+                 # or verify if we have LLM capabilities enabled.
+                 # This is a stub to link to existing logic if possible.
+                 if st.session_state.get("evb_llm_enabled") and st.session_state.get("evb_billing_ok"):
+                     st.info("Sending to LLM... (This would call your LLM logic)")
+                     # TODO: call LLM parsing function
+                 else:
+                     # Fallback or "Event Builder" redirect style? 
+                     # For now, let's just show a message or try to use the 'Event Builder' parsing if relevant.
+                     # But since user said "I just have links", we might just point them there?
+                     pass
+             else:
+                 st.warning("Type something first.")
+    
+    with c2:
+         # Link to external LLMs as requested by user previously
+         st.link_button("Gemini Model", "https://gemini.google.com/gem/18-IbkHbrqKkymmHJmirEUGfulE2BujaF?usp=sharing", use_container_width=True)
+
+    # 2. Minimizable box "Completed Tasks" (or Usage/History)
+    with st.expander("Completed tasks (Session)", expanded=True):
+         stats = st.session_state.get("usage_stats", {})
+         st.write(f"Events added: **{stats.get('events_added', 0)}**")
+         st.caption(f"Last: {stats.get('last_action', '—')}")
+         
+         # Undo button here
+         if st.button("Undo last batch", key="dash_undo_btn"):
+             _undo_last_batch(service)
+
+    # 3. Mode / View switcher (as per sketch "user can change the view")
+    # Actually verifying sketch: "user can change the view, weekly, daily, quarterly" points to the Calendar Column usually,
+    # but the arrow in sketch points from Chat box area. 
+    # Let's put view control in the middle column for better UI standard, or here if strictly following sketch.
+    # Sketch has arrow "User can change the view" pointing to "This week" tab on "Completed task" box? 
+    # Or pointing to the calendar? It looks like it points to the text "This week" above "Completed task".
+    # I will assume "View" controls the Main Calendar for now, usually placed near the calendar.
+
+
+def render_calendar_column(service):
+    """
+    Middle column: The visual calendar.
+    """
+    # Active calendar selector at top
+    c_sel, c_view = st.columns([0.6, 0.4])
+    
+    calendars = _get_calendars_cached(service)
+    ids = [c["id"] for c in calendars]
+    labels = [_calendar_label(c) for c in calendars]
+    
+    cur_id = st.session_state.get("active_calendar", "primary")
+    try:
+        idx = ids.index(cur_id)
+    except:
+        idx = 0
+        
+    with c_sel:
+        # Compact selection
+        new_idx = st.selectbox(
+            "Calendar", 
+            options=range(len(ids)), 
+            format_func=lambda i: labels[i],
+            index=idx,
+            label_visibility="collapsed",
+            key="dash_cal_sel"
+        )
+        if ids and ids[new_idx] != cur_id:
+            _set_active_calendar(ids[new_idx], sync_widget=True)
+            st.rerun()
+
+    current_cal_id = st.session_state.get("active_calendar", "primary")
+    
+    # View toggles (Monthly, Weekly, Daily)
+    # streamlit_calendar has 'initialView' in options. 
+    # We can store view mode in session state to persist it.
+    view_mode = st.session_state.get("calendar_view_mode", "dayGridMonth")
+    
+    with c_view:
+        # Simple toggle or selectbox
+        v = st.selectbox(
+            "View", 
+            ["Month", "Week", "Day", "List"], 
+            index=["Month", "Week", "Day", "List"].index({
+                "dayGridMonth": "Month", 
+                "timeGridWeek": "Week", 
+                "timeGridDay": "Day", 
+                "listMonth": "List"
+            }[view_mode]),
+            label_visibility="collapsed",
+            key="dash_view_sel"
+        )
+        mode_map = {
+            "Month": "dayGridMonth", 
+            "Week": "timeGridWeek", 
+            "Day": "timeGridDay", 
+            "List": "listMonth"
+        }
+        if mode_map[v] != view_mode:
+            st.session_state["calendar_view_mode"] = mode_map[v]
+            st.rerun()
+
+    # Determine date range to fetch - logic slightly simplified for now (fetch +/- 1 month from today usually good enough for month view, 
+    # but for best result ideally we know the visible range. 
+    # For now, let's fetch current month +/- 1.
+    today = dt.date.today()
+    start_range = today - dt.timedelta(days=40)
+    end_range = today + dt.timedelta(days=40)
+    
+    events = _get_calendar_events_for_view(service, current_cal_id, start_range, end_range)
+    
+    calendar_options = {
+        "headerToolbar": {
+            "left": "today prev,next",
+            "center": "title",
+            "right": ""  # We used custom dropdown for view
+        },
+        "initialView": st.session_state.get("calendar_view_mode", "dayGridMonth"),
+        "height": 650,
+    }
+    
+    # Render
+    calendar(events=events, options=calendar_options, key="main_calendar_widget")
+
+
+def render_right_column(service):
+    """
+    Right column: Things Due (Today, This Week).
+    """
+    st.subheader("Tasks")
+    
+    # We reuse the logic to fetch upcoming events, but filter them locally
+    # Or just fetch a batch and display.
+    
+    cal_id = st.session_state.get("active_calendar", "primary")
+    
+    # Fetch ample events to filter
+    all_events = _fetch_upcoming_events(service, cal_id, max_count=60)
+    
+    today = dt.date.today()
+    
+    # Convert to objects for easier handling if needed, or just work with dicts
+    # _fetch_upcoming_events returns dicts with 'start': {'date':... or 'dateTime':...}
+    
+    files_today = []
+    files_week = []
+    
+    for e in all_events:
+        # parsing start
+        start = e.get("start", {})
+        dt_str = start.get("dateTime") or start.get("date")
+        if not dt_str:
+            continue
+        
+        # Simple parse
+        try:
+            # Handle ISO format quirks
+            if "T" in dt_str:
+                d = dt.datetime.fromisoformat(dt_str.replace("Z", "+00:00")).date()
+            else:
+                d = dt.date.fromisoformat(dt_str)
+            
+            delta_days = (d - today).days
+            
+            if delta_days == 0:
+                files_today.append(e)
+            elif 0 < delta_days <= 7:
+                files_week.append(e)
+        except:
+            pass
+
+    # Render "Today"
+    st.markdown("#### Today")
+    if not files_today:
+        st.caption("No events today.")
+    else:
+        for idx, e in enumerate(files_today):
+            summary = e.get("summary", "(No Title)")
+            start = e.get("start", {})
+            # time formatting
+            t = ""
+            if "dateTime" in start:
+                try:
+                    dt_obj = dt.datetime.fromisoformat(start["dateTime"].replace("Z", "+00:00"))
+                    t = dt_obj.strftime("%H:%M")
+                except: pass
+            
+            with st.container(border=True):
+                st.markdown(f"**{summary}**")
+                if t: st.caption(t)
+                # Checkbox for "done"? (Visual only for now as Google Calendar doesn't strictly have 'done' for events, unless Tasks)
+                # st.checkbox("Done", key=f"today_{e['id']}_{idx}")
+
+    # Render "This Week"
+    st.markdown("#### This Week")
+    if not files_week:
+        st.caption("No events this week.")
+    else:
+        for idx, e in enumerate(files_week):
+            summary = e.get("summary", "(No Title)")
+            start = e.get("start", {})
+            date_str = ""
+            if "dateTime" in start:
+                 try:
+                    dt_obj = dt.datetime.fromisoformat(start["dateTime"].replace("Z", "+00:00"))
+                    date_str = dt_obj.strftime("%a %H:%M")
+                 except: pass
+            elif "date" in start:
+                 try:
+                    d_obj = dt.date.fromisoformat(start["date"])
+                    date_str = d_obj.strftime("%a")
+                 except: pass
+
+            with st.container(border=True):
+                st.markdown(f"**{summary}**")
+                st.caption(date_str)
+# ──────────────────────────────────────────────────────────────────────────────
+# Legacy / Shared Components refactored
+# ──────────────────────────────────────────────────────────────────────────────
+
+def render_event_loader_section(service):
+    """
+    The parser/loader section from Event Builder, placed below the main columns so it has space.
+    """
+    st.divider()
+    st.subheader("Event Entry & Validation")
+    
+    # Tabs for Data Entry
+    tab1, tab2 = st.tabs(["Structured Input", "Upload/Paste"])
+    
+    with tab1:
+        # The 'Event Builder' style interactive table
+        
+        # Ensure we have a dataframe
+        if "parsed_events_df" not in st.session_state:
+             st.session_state["parsed_events_df"] = pd.DataFrame()
+
+        # ... (Reuse the logic from show_event_builder editor)
+        # We need to copy some of that logic here or make it reusable.
+        # For brevity, I'll invoke the logic via a simplified version of the code removed from show_event_builder
+        # Ideally, we refactor show_event_builder to just call this, but we are deprecating show_event_builder functionality as a separate page.
+        
+        display_df = st.session_state["parsed_events_df"].copy()
+        for col in ["service", "google_calendar_id", "calendar_name", "user_email"]:
+            if col in display_df.columns:
+                display_df = display_df.drop(columns=[col])
+
+        selected_id = st.session_state.get("active_calendar", "primary")
+        
+        if display_df.empty:
+            st.info("No events pending. Use the Chat input or Paste JSON below to add events.")
+        
+        editable_df, json_cols = _to_streamlit_editable(display_df)
+        edited = st.data_editor(
+            editable_df,
+            width='stretch',
+            height=300,
+            num_rows="dynamic",
+            key="dash_editor",
+            column_config={
+               # minimal config
+            },
+        )
+        edited = _from_streamlit_editable(edited, json_cols)
+        
+        # Sync back
+        base_df = st.session_state["parsed_events_df"]
+        for col in edited.columns:
+            if col in base_df.columns:
+                base_df[col] = edited[col]
+        st.session_state["parsed_events_df"] = base_df
+        
+        if st.button("🚀 Create Events", key="dash_create_btn", type="primary"):
+             df_to_create = st.session_state["parsed_events_df"].copy()
+             # (Reuse creation logic)
+             if "calendar_id" not in df_to_create.columns:
+                df_to_create["calendar_id"] = ""
+             mask_cal = df_to_create["calendar_id"].isna() | (df_to_create["calendar_id"].astype(str).str.strip() == "")
+             df_to_create.loc[mask_cal, "calendar_id"] = selected_id
+             df_to_create["calendar_name"] = _calendar_name_for_id(selected_id)
+             if "google_calendar_id" not in df_to_create.columns:
+                df_to_create["google_calendar_id"] = df_to_create["calendar_id"]
+             
+             _create_events_batch(service, df_to_create)
+             # Clear after success?
+             # st.session_state["parsed_events_df"] = pd.DataFrame() 
+
+    with tab2:
+        # JSON Paste
+        raw = st.text_area("Paste JSON Events", height=150, placeholder="[{...}]", key="dash_paste_json")
+        if st.button("Parse JSON", key="dash_parse_btn"):
+             _load_json_into_preview(raw)
+

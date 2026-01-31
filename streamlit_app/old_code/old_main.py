@@ -73,46 +73,10 @@ def main():
     svc = st.session_state.get("service")
     creds = st.session_state.get("credentials")
 
-    # 0. Check if we are in the OAuth Callback (Redirect from Google)
-    if "code" in st.query_params:
-        try:
-            code = st.query_params["code"]
-            
-            # We need the same config to exchange the code
-            cfg = st.secrets["google_oauth"]
-            app_cfg = st.secrets.get("app", {})
-            redirect_uri = (
-                app_cfg.get("local_redirect_uri", "http://localhost:8501/")
-                if app_cfg.get("mode", "local") == "local"
-                else app_cfg.get("cloud_redirect_uri", "https://lazycal.streamlit.app/")
-            )
+    def _has_usable_token(c):
+        return bool(c and getattr(c, "token", None))
 
-            # Exchange code for token
-            creds = web_exchange_code(
-                cfg["client_id"], 
-                cfg["client_secret"], 
-                redirect_uri, 
-                code
-            )
-            
-            # Save to session
-            st.session_state["credentials"] = creds
-            st.session_state["service"] = build_calendar_service(creds)
-            
-            # Clear query params so we don't re-process
-            st.query_params.clear()
-            
-            # Initialize UI State
-            ui.init_session_state(st.session_state["service"])
-            
-            st.rerun()
-            
-        except Exception as e:
-            st.error(f"Login failed: {e}")
-            st.stop()
-    
-    # 1. Show Login Page if no credentials
-    if not st.session_state.get("credentials"):
+    if svc is None or not _has_usable_token(creds):
         # Optional one-shot notice if prior run logged out due to timeout
         if st.session_state.pop("logout_reason", None) == "timeout":
             st.warning("You were logged out due to 2 hours of inactivity.")
@@ -136,12 +100,6 @@ def main():
             st.session_state["service"] = build_calendar_service(creds)
             st.sidebar.success("Access token refreshed")
         except Exception as e:
-            if "invalid_grant" in str(e):
-                st.error("Session expired/revoked. Please re-login.")
-                time.sleep(1)
-                for k in list(st.session_state.keys()):
-                    del st.session_state[k]
-                st.rerun()
             st.sidebar.error(f"Token refresh failed: {e}")
             st.stop()
 
@@ -156,14 +114,12 @@ def main():
         st.sidebar.error(f"Auth problem: {e}")
         st.stop()
 
-    # Ensure UI state is initialized (caches, defaults)
-    ui.init_session_state(service)
     # Seed the idle timer on first page after login
     if st.session_state.get("last_activity_ts") is None:
         _touch_activity()
 
     # 1) Heartbeat: light auto-refresh so idle modal/timeout can appear without user clicks
-    # st_autorefresh(interval=HEARTBEAT_MS, key="idle_heartbeat")
+    st_autorefresh(interval=HEARTBEAT_MS, key="idle_heartbeat")
 
     # 2) Check for hard timeout first (logs out if exceeded)
     _maybe_timeout_logout()
