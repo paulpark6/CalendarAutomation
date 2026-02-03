@@ -45,3 +45,4 @@ system_prompt: |
   - Default: {"useDefault": false, "overrides": []}
   - If user says “use default notifications”, set useDefault=true.
   - If user provides a number (e.g., 30 minutes before), add a popup override with minutes.
+  - Always output a list of events even for one event.

@@ -1,0 +1,514 @@
+[
+    {
+        "input": "Course Schedule\nIMPORTANT: ALL TIMES EASTERN\nWeekUnitActivities and AssignmentsBegin DateEnd DateWeight (%)Week 1\nCheck-In video posted on Wed. Jan 7 at 1pm\nUnit 1:\nThe future of workCourse Outline QuizFriday, January 9 at 11:55 PMUngradedUnit 1 QuizFriday, January 16 at 11:55 PM2%Week 2Unit 2:\nOverview of businessGroups for Discussions will be created by Technical Support by the end of Week 2Unit 2 QuizFriday, January 16 at 11:55 PM2%Week 3\nCheck-In video posted on Wed. Jan 21 at 1pm\nUnit 3:\nScanning the business environmentIntroduce Yourself to Your GroupDiscussion begins:\nSaturday, January 17Discussion ends:\nFriday, January 23 at 11:55 PMUngradedUnit 3 QuizFriday, January 23, 2026 at 11:55 PM2%Week 4Unit 4:\nEthics and social responsibilityDiscussion 1Discussion begins:\nSaturday, January 24First post due:\nTuesday, January 27 at 11:55 PM5%Discussion ends:\nFriday, January 30 at 11:55 PMUnit 4 QuizFriday, January 30 at 11:55 PM2%Week 5\nCheck-In video posted on Wed. Feb 4 at 1pm\nUnit 5:\nManagementUnit 5 QuizFriday, February 6 at 11:55 PM2%Week 6\nCheck-In video posted on Wed. Feb 11 at 1pm\nUnit 6:\nEntrepreneurshipDiscussion 2Discussion begins:\nSaturday, February 7First post due:\n Tuesday, February 10 at 11:55 PM5%Discussion ends:\nFriday, February 13 at 11:55 PMUnit 6 QuizFriday, February 13 at 11:55 PM2%Reading Week (Saturday, February 14 to Saturday, February 22)Week 7\nUnit 7:\nMidterm AssignmentMidterm AssignmentFriday, February 27 at 11:55 PM20%Week 8\nCheck-In video posted on Wed. March 4 at 1pm\nUnit 8:\nMarketingUnit 8 QuizFriday, March 6 at 11:55 PM2%Week 9Unit 9:\nOperations managementDiscussion 3Discussion begins:\nSaturday, March 7First post due:\nTuesday, March 10 at 11:55 PM5%Discussion ends:\nFriday, March 13 at 11:55 PMUnit 9 QuizFriday, March 13 at 11:55 PM2%Week 10\nCheck-In video posted on Wed. March 18 at 1pm\nUnit 10:\nHuman Resources managementUnit 10 QuizFriday, March 20 at 11:55 PM2%Week 11Unit 11:\nFinancial managementDiscussion 4Discussion begins:\nSaturday, March 21First post due:\nTuesday, March 24 at 11:55 PM5%Discussion ends:\nFriday, March 27 at 11:55 PMUnit 11 QuizFriday, March 27 at 11:55 PM2%Week 12\nCheck-In video posted on Wed. Apr 1 at 1pm\nFinal Exam PrepFinal Exam40%\nUniversity of Waterloo\nCredits and Copyright",
+        "output": [
+            {
+                "title": "Check-In Video Posted",
+                "event_date": "2026-01-07",
+                "event_time": "13:00",
+                "description": "Week 1. Check-In video posted. IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Course Outline Quiz",
+                "event_date": "2026-01-09",
+                "event_time": "23:55",
+                "description": "Unit 1: The future of work. Course Outline Quiz (Ungraded). IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Unit 1 Quiz",
+                "event_date": "2026-01-16",
+                "event_time": "23:55",
+                "description": "Unit 1: The future of work. Unit 1 Quiz (2%). IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Unit 2 Quiz",
+                "event_date": "2026-01-16",
+                "event_time": "23:55",
+                "description": "Unit 2: Overview of business. Unit 2 Quiz (2%). IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Check-In Video Posted",
+                "event_date": "2026-01-21",
+                "event_time": "13:00",
+                "description": "Week 3. Check-In video posted. IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Group Discussion Begins",
+                "event_date": "2026-01-17",
+                "description": "Unit 3: Scanning the business environment. Introduce Yourself to Your Group. Discussion begins. IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Group Discussion Ends",
+                "event_date": "2026-01-23",
+                "event_time": "23:55",
+                "description": "Unit 3: Scanning the business environment. Introduce Yourself to Your Group. Discussion ends (Ungraded). IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Unit 3 Quiz",
+                "event_date": "2026-01-23",
+                "event_time": "23:55",
+                "description": "Unit 3: Scanning the business environment. Unit 3 Quiz (2%). IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Discussion 1 Begins",
+                "event_date": "2026-01-24",
+                "description": "Unit 4: Ethics and social responsibility. Discussion 1 begins. IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Discussion 1 First Post Due",
+                "event_date": "2026-01-27",
+                "event_time": "23:55",
+                "description": "Unit 4: Ethics and social responsibility. Discussion 1 first post due (5%). IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Discussion 1 Ends",
+                "event_date": "2026-01-30",
+                "event_time": "23:55",
+                "description": "Unit 4: Ethics and social responsibility. Discussion 1 ends. IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Unit 4 Quiz",
+                "event_date": "2026-01-30",
+                "event_time": "23:55",
+                "description": "Unit 4: Ethics and social responsibility. Unit 4 Quiz (2%). IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Check-In Video Posted",
+                "event_date": "2026-02-04",
+                "event_time": "13:00",
+                "description": "Week 5. Check-In video posted. IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Unit 5 Quiz",
+                "event_date": "2026-02-06",
+                "event_time": "23:55",
+                "description": "Unit 5: Management. Unit 5 Quiz (2%). IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Check-In Video Posted",
+                "event_date": "2026-02-11",
+                "event_time": "13:00",
+                "description": "Week 6. Check-In video posted. IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Discussion 2 Begins",
+                "event_date": "2026-02-07",
+                "description": "Unit 6: Entrepreneurship. Discussion 2 begins. IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Discussion 2 First Post Due",
+                "event_date": "2026-02-10",
+                "event_time": "23:55",
+                "description": "Unit 6: Entrepreneurship. Discussion 2 first post due (5%). IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Discussion 2 Ends",
+                "event_date": "2026-02-13",
+                "event_time": "23:55",
+                "description": "Unit 6: Entrepreneurship. Discussion 2 ends. IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Unit 6 Quiz",
+                "event_date": "2026-02-13",
+                "event_time": "23:55",
+                "description": "Unit 6: Entrepreneurship. Unit 6 Quiz (2%). IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Reading Week",
+                "event_date": "2026-02-14",
+                "end_date": "2026-02-22",
+                "description": "Reading Week (Saturday, February 14 to Saturday, February 22). IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Midterm Assignment Due",
+                "event_date": "2026-02-27",
+                "event_time": "23:55",
+                "description": "Unit 7: Midterm Assignment. Due (20%). IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Check-In Video Posted",
+                "event_date": "2026-03-04",
+                "event_time": "13:00",
+                "description": "Week 8. Check-In video posted. IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Unit 8 Quiz",
+                "event_date": "2026-03-06",
+                "event_time": "23:55",
+                "description": "Unit 8: Marketing. Unit 8 Quiz (2%). IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Discussion 3 Begins",
+                "event_date": "2026-03-07",
+                "description": "Unit 9: Operations management. Discussion 3 begins. IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Discussion 3 First Post Due",
+                "event_date": "2026-03-10",
+                "event_time": "23:55",
+                "description": "Unit 9: Operations management. Discussion 3 first post due (5%). IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Discussion 3 Ends",
+                "event_date": "2026-03-13",
+                "event_time": "23:55",
+                "description": "Unit 9: Operations management. Discussion 3 ends. IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Unit 9 Quiz",
+                "event_date": "2026-03-13",
+                "event_time": "23:55",
+                "description": "Unit 9: Operations management. Unit 9 Quiz (2%). IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Check-In Video Posted",
+                "event_date": "2026-03-18",
+                "event_time": "13:00",
+                "description": "Week 10. Check-In video posted. IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Unit 10 Quiz",
+                "event_date": "2026-03-20",
+                "event_time": "23:55",
+                "description": "Unit 10: Human Resources management. Unit 10 Quiz (2%). IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Discussion 4 Begins",
+                "event_date": "2026-03-21",
+                "description": "Unit 11: Financial management. Discussion 4 begins. IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Discussion 4 First Post Due",
+                "event_date": "2026-03-24",
+                "event_time": "23:55",
+                "description": "Unit 11: Financial management. Discussion 4 first post due (5%). IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Discussion 4 Ends",
+                "event_date": "2026-03-27",
+                "event_time": "23:55",
+                "description": "Unit 11: Financial management. Discussion 4 ends. IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Unit 11 Quiz",
+                "event_date": "2026-03-27",
+                "event_time": "23:55",
+                "description": "Unit 11: Financial management. Unit 11 Quiz (2%). IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            },
+            {
+                "title": "Check-In Video Posted",
+                "event_date": "2026-04-01",
+                "event_time": "13:00",
+                "description": "Week 12. Check-In video posted. IMPORTANT: ALL TIMES EASTERN.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Toronto"
+            }
+        ]
+    },
+    {
+        "input": "class every tuesday and thursday until second week of april",
+        "output": [
+            {
+                "title": "Class",
+                "event_date": "2026-02-03",
+                "description": "Recurring class every Tuesday and Thursday until second week of April.",
+                "notifications": [],
+                "invitees": [],
+                "recurrence": [
+                    "RRULE:FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=20260412T235959Z"
+                ]
+            }
+        ]
+    },
+    {
+        "input": "meet with anna tomorrow at 3pm",
+        "output": [
+            {
+                "title": "Meet with Anna",
+                "event_date": "2026-02-01",
+                "event_time": "15:00",
+                "description": "",
+                "notifications": [],
+                "invitees": []
+            }
+        ]
+    },
+    {
+        "input": "abriginal impact dicsuccion on Feb 14th 3pm to 4pm",
+        "output": [
+            {
+                "title": "Abriginal Impact Discussion",
+                "event_date": "2026-02-14",
+                "event_time": "15:00",
+                "end_time": "16:00",
+                "description": "Text contained typos: \"abriginal\" / \"dicsuccion\".",
+                "notifications": [],
+                "invitees": []
+            }
+        ]
+    },
+    {
+        "input": "Dentist appointment March 2, 2026 at noon, remind me 2 hours before",
+        "output": [
+            {
+                "title": "Dentist Appointment",
+                "event_date": "2026-03-02",
+                "event_time": "12:00",
+                "description": "",
+                "notifications": [
+                    {
+                        "method": "popup",
+                        "minutes": 120
+                    }
+                ],
+                "invitees": []
+            }
+        ]
+    },
+    {
+        "input": "Project kickoff with @sam and @lee on 2026-02-05 09:30-10:15 at 151 Front St W, Toronto. Email me 30 minutes prior.",
+        "output": [
+            {
+                "title": "Project Kickoff",
+                "event_date": "2026-02-05",
+                "event_time": "09:30",
+                "end_time": "10:15",
+                "location": "151 Front St W, Toronto",
+                "description": "",
+                "notifications": [
+                    {
+                        "method": "email",
+                        "minutes": 30
+                    }
+                ],
+                "invitees": [
+                    "@sam",
+                    "@lee"
+                ],
+                "timezone": "America/Toronto"
+            }
+        ]
+    },
+    {
+        "input": "Conference Sept 15–17, 2026 in Vancouver (use default notifications)",
+        "output": [
+            {
+                "title": "Conference",
+                "event_date": "2026-09-15",
+                "location": "Vancouver",
+                "description": "Multi-day range: Sept 15–17, 2026.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Los_Angeles"
+            },
+            {
+                "title": "Conference",
+                "event_date": "2026-09-16",
+                "location": "Vancouver",
+                "description": "Multi-day range: Sept 15–17, 2026.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Los_Angeles"
+            },
+            {
+                "title": "Conference",
+                "event_date": "2026-09-17",
+                "location": "Vancouver",
+                "description": "Multi-day range: Sept 15–17, 2026.",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "America/Los_Angeles"
+            }
+        ]
+    },
+    {
+        "input": "Deploy freeze from Dec 3 to Dec 4, 2026",
+        "output": [
+            {
+                "title": "Deploy Freeze",
+                "event_date": "2026-12-03",
+                "end_date": "2026-12-04",
+                "description": "",
+                "notifications": [],
+                "invitees": []
+            }
+        ]
+    },
+    {
+        "input": "Standup daily for 5 occurrences at 09:00 starting 2026-02-02; popup at 10 minutes before",
+        "output": [
+            {
+                "title": "Standup",
+                "event_date": "2026-02-02",
+                "event_time": "09:00",
+                "description": "Daily standup for 5 occurrences.",
+                "notifications": [
+                    {
+                        "method": "popup",
+                        "minutes": 10
+                    }
+                ],
+                "invitees": [],
+                "recurrence": [
+                    "RRULE:FREQ=DAILY;COUNT=5"
+                ]
+            }
+        ]
+    },
+    {
+        "input": "Dinner in London on 2026-03-08 at midnight",
+        "output": [
+            {
+                "title": "Dinner",
+                "event_date": "2026-03-08",
+                "event_time": "00:00",
+                "location": "London",
+                "description": "",
+                "notifications": [],
+                "invitees": [],
+                "timezone": "Europe/London"
+            }
+        ]
+    },
+    {
+        "input": "Call with investor team on 2026-02-06 16:00. remind me the evening before and right before",
+        "output": [
+            {
+                "title": "Call with Investor Team",
+                "event_date": "2026-02-06",
+                "event_time": "16:00",
+                "description": "",
+                "notifications": [
+                    "evening before",
+                    "at start"
+                ],
+                "invitees": []
+            }
+        ]
+    },
+    {
+        "input": "Team sync on 2026-02-04 at 14:00 with alice@example.com, bob@example.com; email 1 day before; popup 15 minutes before",
+        "output": [
+            {
+                "title": "Team Sync",
+                "event_date": "2026-02-04",
+                "event_time": "14:00",
+                "description": "",
+                "notifications": [
+                    {
+                        "method": "email",
+                        "minutes": 1440
+                    },
+                    {
+                        "method": "popup",
+                        "minutes": 15
+                    }
+                ],
+                "invitees": [
+                    "alice@example.com",
+                    "bob@example.com"
+                ]
+            }
+        ]
+    }
+]

@@ -31,54 +31,36 @@ from project_code import event_creation
 def main():
     print("--- 1. Authenticating ---")
     
-    creds = None
-    token_path = 'token.json'
-    
-    # 1. Try loading existing token
-    if os.path.exists(token_path):
-        from google.oauth2.credentials import Credentials
-        creds = Credentials.from_authorized_user_file(token_path, auth.SCOPES)
-
-    # 2. If no valid token, verify if we can refresh or need new login
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            from google.auth.transport.requests import Request
-            creds.refresh(Request())
-        else:
-            print("Token missing or invalid. Attempting local login using .streamlit/secrets.toml...")
-            try:
-                # Attempt to parse secrets.toml manually to avoid extra dependencies
-                secrets_path = os.path.join(os.path.dirname(__file__), '..', '.streamlit', 'secrets.toml')
-                import toml
-                with open(secrets_path, "r") as f:
-                    secrets = toml.load(f)
-                    
-                client_id = secrets["google_oauth"]["client_id"]
-                client_secret = secrets["google_oauth"]["client_secret"]
-                
-                from google_auth_oauthlib.flow import InstalledAppFlow
-                flow = InstalledAppFlow.from_client_config(
-                    {
-                        "installed": {
-                            "client_id": client_id,
-                            "client_secret": client_secret,
-                            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                            "token_uri": "https://oauth2.googleapis.com/token",
-                        }
-                    },
-                    auth.SCOPES
-                )
-                creds = flow.run_local_server(port=8501)
-                
-                # Save the credentials for the next run
-                with open(token_path, 'w') as token:
-                    token.write(creds.to_json())
-                    print("Token saved to 'token.json'.")
-                    
-            except Exception as e:
-                print(f"\n[Error] Could not auto-login: {e}")
-                print(f"Make sure you have a valid .streamlit/secrets.toml or a token.json file in this directory.")
-                return
+    # 1. Always use local secrets.toml for Client Config (No token.json)
+    print("Reading client secrets from .streamlit/secrets.toml...")
+    try:
+        secrets_path = os.path.join(os.path.dirname(__file__), '..', '.streamlit', 'secrets.toml')
+        import toml
+        with open(secrets_path, "r") as f:
+            secrets = toml.load(f)
+            
+        client_id = secrets["google_oauth"]["client_id"]
+        client_secret = secrets["google_oauth"]["client_secret"]
+        
+        from google_auth_oauthlib.flow import InstalledAppFlow
+        flow = InstalledAppFlow.from_client_config(
+            {
+                "installed": {
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                }
+            },
+            auth.SCOPES
+        )
+        # Run local server usage (requires browser interaction EVERY time)
+        creds = flow.run_local_server(port=0)
+            
+    except Exception as e:
+        print(f"\n[Error] Could not login: {e}")
+        print(f"Make sure you have a valid .streamlit/secrets.toml file.")
+        return
 
     try:
         service = auth.build_calendar_service(creds)

@@ -1,5 +1,5 @@
 import pytest
-from project_code.calendar_methods import _sha1, generate_unique_key
+from project_code.old_methods.calendar_methods import _sha1, generate_unique_key
 
 # --------- SHA1 tests ---------
 def test_sha1_known_value():

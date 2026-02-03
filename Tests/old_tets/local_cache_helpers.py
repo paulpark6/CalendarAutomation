@@ -1,6 +1,6 @@
 import pytest
-import project_code.calendar_methods as calendar_methods
-from project_code.calendar_methods import _cache_path, _load_cache, _save_cache, _store_minimal_local, USER_DATA_DIR
+import project_code.old_methods.calendar_methods as calendar_methods
+from project_code.old_methods.calendar_methods import _cache_path, _load_cache, _save_cache, _store_minimal_local, USER_DATA_DIR
 import os
 import json
 import importlib

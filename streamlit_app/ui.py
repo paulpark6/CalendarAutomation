@@ -90,22 +90,46 @@ def _parse_drafts_dummy(text):
         
         # Helper to map fields
         def map_event(item):
-            # Try to find date/time
-            summary = item.get("summary") or item.get("title") or "New Event"
-            desc = item.get("description", "")
+            # Start with a copy of everything (Pass-through)
+            event = item.copy()
             
+            # 1. Title/Summary Normalization
+            if "summary" not in event:
+                event["summary"] = event.get("title", "New Event")
+            
+            # 2. Description Normalization
+            if "description" not in event:
+                event["description"] = ""
+
+            # 3. Time Logic
             # Start/End logic
-            # 1. Standard Google API format
+            start_dt = None
+            end_dt = None
+            
+            # A. Standard Google API format
             if "start" in item and "dateTime" in item["start"]:
                 start_dt = item["start"]["dateTime"]
                 end_dt = item["end"]["dateTime"]
-            # 2. Flattened format (event_date + event_time)
+            # B. Flattened format (event_date + event_time)
             elif "event_date" in item and "event_time" in item:
                 # Naive combine
                 s_str = f"{item['event_date']}T{item['event_time']}:00"
                 # Default duration 1h
                 start_obj = dt.datetime.fromisoformat(s_str)
                 end_obj = start_obj + dt.timedelta(hours=1)
+                
+                # Check for explicit end time/date
+                if "end_time" in item:
+                     # Same date, specific time
+                     # Assuming end_date is same if not provided
+                     e_date = item.get("end_date", item["event_date"])
+                     e_str = f"{e_date}T{item['end_time']}:00"
+                     end_obj = dt.datetime.fromisoformat(e_str)
+                elif "end_date" in item:
+                     # All day or specific logic? 
+                     # For now just default 1h if time not match
+                     pass
+
                 start_dt = start_obj.isoformat()
                 end_dt = end_obj.isoformat()
             else:
@@ -114,12 +138,17 @@ def _parse_drafts_dummy(text):
                 start_dt = start_obj.isoformat()
                 end_dt = (start_obj + dt.timedelta(hours=1)).isoformat()
 
-            return {
-                "summary": summary,
-                "start": {"dateTime": start_dt},
-                "end": {"dateTime": end_dt},
-                "description": desc
-            }
+            # Set standard start/end
+            event["start"] = {"dateTime": start_dt}
+            event["end"] = {"dateTime": end_dt}
+            
+            # 4. Cleanup Helper Fields (Don't send these to Google)
+            details_keys = ["title", "event_date", "event_time", "end_date", "end_time", "invitees"]
+            for k in details_keys:
+                if k in event:
+                    del event[k]
+            
+            return event
 
         if isinstance(data, list):
             return [map_event(x) for x in data]
@@ -394,10 +423,26 @@ def render_event_loader_section(service):
     df = df.rename(columns={"summary": "title"})
     
     # Ensure columns exist
+    # Determine all potential keys from drafts
+    all_keys = set()
+    for d in drafts:
+        all_keys.update(d.keys())
+        
+    # Standard keys management
+    if "summary" in all_keys: all_keys.remove("summary")
+    if "start" in all_keys: all_keys.remove("start")
+    if "end" in all_keys: all_keys.remove("end")
+    if "description" in all_keys: all_keys.remove("description")
+    
+    # Base columns
     cols = ["title", "start", "end", "description"]
-    for c in cols:
+    # Sorting extra keys
+    extra_keys = sorted(list(all_keys))
+    
+    # Ensure all exist in DF
+    for c in cols + extra_keys:
         if c not in df.columns:
-            df[c] = ""
+            df[c] = None
             
     # Flatten start/end for table (just datetime strings)
     # handle dicts if they exist
@@ -407,9 +452,19 @@ def render_event_loader_section(service):
     
     df["start"] = df["start"].apply(get_dt)
     df["end"] = df["end"].apply(get_dt)
+
+    # Determine which columns to show
+    # Always show basic ones
+    show_cols = ["title", "start", "end", "description"]
+    
+    # Add extra columns ONLY if non-empty
+    for k in extra_keys:
+        # Check if column has any truthy value (and not all None/NaN)
+        if df[k].notna().any() and df[k].astype(str).str.strip().ne("").any():
+             show_cols.append(k)
     
     edited_df = st.data_editor(
-        df[["title", "start", "end", "description"]],
+        df[show_cols],
         num_rows="dynamic",
         use_container_width=True,
         key="draft_editor"
@@ -422,12 +477,20 @@ def render_event_loader_section(service):
             # Update drafts from editor
             updated_drafts = []
             for _, row in edited_df.iterrows():
-                updated_drafts.append({
-                    "summary": row["title"],  # Map back to summary
+                # Base Object
+                evt = {
+                    "summary": row["title"], # Map back
                     "start": {"dateTime": row["start"]},
                     "end": {"dateTime": row["end"]},
                     "description": row["description"]
-                })
+                }
+                # Add back extra fields
+                for k in extra_keys:
+                    if k in row and row[k]: # Only if value exists
+                        evt[k] = row[k]
+                
+                updated_drafts.append(evt)
+
             # Checkpoint before applying? 
             # Actually, applying CLEARS drafts, so we might want to checkpoint to restore if needed?
             # But the user logic is 'Apply' moves to Calendar. 

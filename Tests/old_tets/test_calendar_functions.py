@@ -2,8 +2,8 @@ import pytest
 import importlib
 import types
 from unittest.mock import MagicMock
-import project_code.calendar_methods as calendar_methods
-from project_code.calendar_methods import create_event, delete_event_by_fields, list_local_records, USER_DATA_DIR
+import project_code.old_methods.calendar_methods as calendar_methods
+from project_code.old_methods.calendar_methods import create_event, delete_event_by_fields, list_local_records, USER_DATA_DIR
 
 @pytest.fixture
 def sandbox(tmp_path):

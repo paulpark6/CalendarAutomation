@@ -1,0 +1,187 @@
+[
+  {
+    "input": "Course Schedule\nIMPORTANT: ALL TIMES EASTERN\nWeekUnitActivities and AssignmentsBegin DateEnd DateWeight (%)Week 1\nCheck-In video posted on Wed. Jan 7 at 1pm\nUnit 1:\nThe future of workCourse Outline QuizFriday, January 9 at 11:55 PMUngradedUnit 1 QuizFriday, January 16 at 11:55 PM2%Week 2Unit 2:\nOverview of businessGroups for Discussions will be created by Technical Support by the end of Week 2Unit 2 QuizFriday, January 16 at 11:55 PM2%Week 3\nCheck-In video posted on Wed. Jan 21 at 1pm\nUnit 3:\nScanning the business environmentIntroduce Yourself to Your GroupDiscussion begins:\nSaturday, January 17Discussion ends:\nFriday, January 23 at 11:55 PMUngradedUnit 3 QuizFriday, January 23, 2026 at 11:55 PM2%Week 4Unit 4:\nEthics and social responsibilityDiscussion 1Discussion begins:\nSaturday, January 24First post due:\nTuesday, January 27 at 11:55 PM5%Discussion ends:\nFriday, January 30 at 11:55 PMUnit 4 QuizFriday, January 30 at 11:55 PM2%Week 5\nCheck-In video posted on Wed. Feb 4 at 1pm\nUnit 5:\nManagementUnit 5 QuizFriday, February 6 at 11:55 PM2%Week 6\nCheck-In video posted on Wed. Feb 11 at 1pm\nUnit 6:\nEntrepreneurshipDiscussion 2Discussion begins:\nSaturday, February 7First post due:\n Tuesday, February 10 at 11:55 PM5%Discussion ends:\nFriday, February 13 at 11:55 PMUnit 6 QuizFriday, February 13 at 11:55 PM2%Reading Week (Saturday, February 14 to Saturday, February 22)Week 7\nUnit 7:\nMidterm AssignmentMidterm AssignmentFriday, February 27 at 11:55 PM20%Week 8\nCheck-In video posted on Wed. March 4 at 1pm\nUnit 8:\nMarketingUnit 8 QuizFriday, March 6 at 11:55 PM2%Week 9Unit 9:\nOperations managementDiscussion 3Discussion begins:\nSaturday, March 7First post due:\nTuesday, March 10 at 11:55 PM5%Discussion ends:\nFriday, March 13 at 11:55 PMUnit 9 QuizFriday, March 13 at 11:55 PM2%Week 10\nCheck-In video posted on Wed. March 18 at 1pm\nUnit 10:\nHuman Resources managementUnit 10 QuizFriday, March 20 at 11:55 PM2%Week 11Unit 11:\nFinancial managementDiscussion 4Discussion begins:\nSaturday, March 21First post due:\nTuesday, March 24 at 11:55 PM5%Discussion ends:\nFriday, March 27 at 11:55 PMUnit 11 QuizFriday, March 27 at 11:55 PM2%Week 12\nCheck-In video posted on Wed. Apr 1 at 1pm\nFinal Exam PrepFinal Exam40%\nUniversity of Waterloo\nCredits and Copyright",
+    "output": [
+      {
+        "title": "Check-In Video Posted",
+        "event_date": "2026-01-07",
+        "event_time": "13:00",
+        "description": "Week 1 Check-In video",
+        "notifications": [],
+        "invitees": [],
+        "timezone": "America/Toronto"
+      },
+      {
+        "title": "Course Outline Quiz Due",
+        "event_date": "2026-01-09",
+        "event_time": "23:55",
+        "description": "Ungraded",
+        "notifications": [],
+        "invitees": [],
+        "timezone": "America/Toronto"
+      },
+      {
+        "title": "Unit 1 Quiz Due",
+        "event_date": "2026-01-16",
+        "event_time": "23:55",
+        "description": "Weight: 2%",
+        "notifications": [],
+        "invitees": [],
+        "timezone": "America/Toronto"
+      },
+      {
+        "title": "Reading Week",
+        "event_date": "2026-02-14",
+        "end_date": "2026-02-22",
+        "description": "University Reading Week",
+        "notifications": [],
+        "invitees": []
+      },
+      {
+        "title": "Final Exam",
+        "event_date": "2026-04-01",
+        "description": "Weight: 40%",
+        "notifications": [],
+        "invitees": []
+      }
+    ]
+  },
+  {
+    "input": "class every tuesday and thursday until second week of april",
+    "output": [
+      {
+        "title": "Class",
+        "event_date": "2026-02-03",
+        "description": "",
+        "notifications": [],
+        "invitees": [],
+        "recurrence": "RRULE:FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=20260414T235959Z"
+      }
+    ]
+  },
+  {
+    "input": "meet with anna tomorrow at 3pm",
+    "output": [
+      {
+        "title": "Meet with Anna",
+        "event_date": "2026-02-01",
+        "event_time": "15:00",
+        "description": "",
+        "notifications": [],
+        "invitees": []
+      }
+    ]
+  },
+  {
+    "input": "abriginal impact dicsuccion on Feb 14th 3pm to 4pm",
+    "output": [
+      {
+        "title": "Aboriginal Impact Discussion",
+        "event_date": "2026-02-14",
+        "event_time": "15:00",
+        "end_time": "16:00",
+        "description": "Corrected typos from: abriginal impact dicsuccion",
+        "notifications": [],
+        "invitees": []
+      }
+    ]
+  },
+  {
+    "input": "Dentist appointment March 2, 2026 at noon, remind me 2 hours before",
+    "output": [
+      {
+        "title": "Dentist Appointment",
+        "event_date": "2026-03-02",
+        "event_time": "12:00",
+        "description": "",
+        "notifications": [
+          {
+            "method": "popup",
+            "minutes": 120
+          }
+        ],
+        "invitees": []
+      }
+    ]
+  },
+  {
+    "input": "Project kickoff with sam@example.com and lee@example.com on 2026-02-05 09:30-10:15 at 151 Front St W. Email me 30 minutes prior.",
+    "output": [
+      {
+        "title": "Project Kickoff",
+        "event_date": "2026-02-05",
+        "event_time": "09:30",
+        "end_time": "10:15",
+        "location": "151 Front St W",
+        "description": "",
+        "notifications": [
+          {
+            "method": "email",
+            "minutes": 30
+          }
+        ],
+        "invitees": [
+          "sam@example.com",
+          "lee@example.com"
+        ]
+      }
+    ]
+  },
+  {
+    "input": "Conference Sept 15–17, 2026 in Vancouver",
+    "output": [
+      {
+        "title": "Conference",
+        "event_date": "2026-09-15",
+        "end_date": "2026-09-17",
+        "location": "Vancouver",
+        "description": "",
+        "notifications": [],
+        "invitees": []
+      }
+    ]
+  },
+  {
+    "input": "Server maintenance starts Friday night Feb 20 at 10pm and ends Sat morning at 4am.",
+    "output": [
+      {
+        "title": "Server Maintenance",
+        "event_date": "2026-02-20",
+        "event_time": "22:00",
+        "end_date": "2026-02-21",
+        "end_time": "04:00",
+        "description": "Overnight maintenance window.",
+        "notifications": [],
+        "invitees": []
+      }
+    ]
+  },
+  {
+    "input": "Team sync on 2026-02-04 at 14:00 with alice@example.com; email 1 day before; popup 15 minutes before",
+    "output": [
+      {
+        "title": "Team Sync",
+        "event_date": "2026-02-04",
+        "event_time": "14:00",
+        "description": "",
+        "notifications": [
+          {
+            "method": "email",
+            "minutes": 1440
+          },
+          {
+            "method": "popup",
+            "minutes": 15
+          }
+        ],
+        "invitees": [
+          "alice@example.com"
+        ]
+      }
+    ]
+  },
+  {
+    "input": "Maybe we can meet sometime next month? I'm thinking a Monday.",
+    "output": []
+  }
+]

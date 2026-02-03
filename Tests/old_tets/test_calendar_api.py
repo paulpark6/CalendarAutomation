@@ -1,5 +1,5 @@
 from datetime import datetime, timezone, timedelta
-from project_code.calendar_methods import *
+from project_code.old_methods.calendar_methods import *
 from project_code.auth import *
 
 # ── Demo block ─────────────────────────────────────────────────────────────
