@@ -83,9 +83,9 @@ def main():
             cfg = st.secrets["google_oauth"]
             app_cfg = st.secrets.get("app", {})
             redirect_uri = (
-                app_cfg.get("local_redirect_uri", "http://localhost:8501/")
-                if app_cfg.get("mode", "local") == "local"
-                else app_cfg.get("cloud_redirect_uri", "https://lazycal.streamlit.app/")
+                app_cfg["local_redirect_uri"]
+                if app_cfg.get("mode") == "local"
+                else app_cfg["cloud_redirect_uri"]
             )
 
             # Exchange code for token
