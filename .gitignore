@@ -63,6 +63,7 @@ UserData/
 # ==========================================
 # Ignore any .env file anywhere in the repo
 **/.env
+./streamlit
 **/.streamlit/secrets.toml
 **/.secrets.toml
 # Ignore token.json inside UserCredentials (or any JSON there)
