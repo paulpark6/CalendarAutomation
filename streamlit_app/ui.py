@@ -238,48 +238,43 @@ def _undo_last_batch(service):
 
 
 def show_login_page():
-    """Renders the login page content (without logic)."""
+    """Renders the login page content."""
     st.title("😪 LazyCal 🗓️")
     st.write("🔐 Sign in to connect your Google Calendar.")
-    
-    # The actual Auth URL generation and Button logic was in main.py
-    # But now main.py expects this function to do IT.
-    # We need client_id/secret to generate the link.
+
     try:
         cfg = st.secrets["google_oauth"]
         client_id = cfg["client_id"]
         client_secret = cfg["client_secret"]
-        
-        # Dynamic redirect URI based on mode
-        app_cfg = st.secrets.get("app", {})
+
+        app_cfg = st.secrets["app"]
         redirect_uri = (
             app_cfg["local_redirect_uri"]
             if app_cfg.get("mode") == "local"
             else app_cfg["cloud_redirect_uri"]
         )
-        
-        auth_url, state = auth.web_authorization_url(client_id, client_secret, redirect_uri)
-    
-        st.markdown(
-            f'''
-            <a href="{auth_url}" target="_self" style="
-                display: inline-block;
-                background-color: #ff4b4b;
-                color: white;
-                padding: 0.5rem 1rem;
-                text-decoration: none;
-                border-radius: 0.5rem;
-                font-weight: 600;
-            ">
-            Continue with Google
-            </a>
-            ''',
-            unsafe_allow_html=True
+
+        auth_url, state = auth.web_authorization_url(
+            client_id,
+            client_secret,
+            redirect_uri,
         )
+
+        # debug
+        st.write("Mode:", app_cfg.get("mode"))
+        st.write("Redirect URI:", redirect_uri)
+        st.code(auth_url, language="text")
+
+        # save state if your callback validates it later
+        st.session_state["oauth_state"] = state
+
+        # better than raw html anchor for now
+        st.link_button("Continue with Google", auth_url)
+
         st.caption("You will be redirected to Google to authorize access.")
-        
+
     except Exception as e:
-        st.error(f"Missing secrets configuration: {e}")
+        st.error(f"Login config error: {e}")
 
 # --- 3. Panel Components ---
 
