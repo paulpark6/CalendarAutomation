@@ -13,7 +13,10 @@ from googleapiclient.discovery import build
 # OAuth scope (you can narrow later to calendar.events + calendar.readonly)
 # ---------------------------------------------------------------------
 
-SCOPES = ["https://www.googleapis.com/auth/calendar"]
+SCOPES = [
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/userinfo.email"
+]
 
 def build_calendar_service(creds):
     # Ensure the access token is fresh before building the client
