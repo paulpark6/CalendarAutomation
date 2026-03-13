@@ -41,8 +41,9 @@ st.session_state.setdefault("_oauth_code_processed", False)  # ← KEY FIX
 # ============================================================================
 # OAUTH CALLBACK HANDLER
 # ============================================================================
+code = st.query_params.get("code")
 
-if "code" in st.query_params and not st.session_state["_oauth_code_processed"]:
+if code and not st.session_state.get("_oauth_code_processed", False):
     """
     User was redirected from Google OAuth with authorization code.
     Exchange code for credentials and save to session.
@@ -79,12 +80,13 @@ if "code" in st.query_params and not st.session_state["_oauth_code_processed"]:
         st.session_state["user_email"] = "authenticated_user@gmail.com"
         st.session_state["_oauth_code_processed"] = True  # ← MARK AS PROCESSED
         
-        # Show success message
-        st.success("✅ Successfully logged in!")
-        
-        # Rerun to go to main app (don't need to clear query params)
+        st.session_state["credentials"] = creds
+        st.session_state["service"] = build_calendar_service(creds)
+        st.session_state["user_email"] = "authenticated_user@gmail.com"
+        st.session_state["_oauth_code_processed"] = True
+
+        st.query_params.clear()
         st.rerun()
-        
     except Exception as e:
         st.error(f"❌ Login failed: {e}")
         st.session_state["_oauth_code_processed"] = True  # Mark as processed even on error
@@ -120,8 +122,11 @@ def main():
             if "invalid_grant" in str(e):
                 st.error("❌ Session expired. Please log in again.")
                 # Clear all session state to force re-login
-                for k in list(st.session_state.keys()):
-                    del st.session_state[k]
+                for k in ["service", "credentials", "user_email"]:
+                    st.session_state.pop(k, None)
+
+                st.session_state["_oauth_code_processed"] = False
+                st.query_params.clear()
                 st.rerun()
             st.error(f"❌ Token refresh failed: {e}")
             st.stop()
