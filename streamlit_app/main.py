@@ -44,52 +44,36 @@ st.session_state.setdefault("_oauth_code_processed", False)  # ← KEY FIX
 code = st.query_params.get("code")
 
 if code and not st.session_state.get("_oauth_code_processed", False):
-    """
-    User was redirected from Google OAuth with authorization code.
-    Exchange code for credentials and save to session.
-    
-    The check "and not st.session_state["_oauth_code_processed"]" prevents
-    this block from re-executing on subsequent reruns, which was causing
-    the infinite login loop.
-    """
     try:
-        code = st.query_params["code"]
-        
-        # Get OAuth config from secrets
         cfg = st.secrets["google_oauth"]
         app_cfg = st.secrets.get("app", {})
-        
-        # Determine redirect URI based on environment
+
         redirect_uri = (
             app_cfg["local_redirect_uri"]
             if app_cfg.get("mode") == "local"
             else app_cfg["cloud_redirect_uri"]
         )
 
-        # Exchange code for credentials
         creds = web_exchange_code(
             cfg["client_id"],
             cfg["client_secret"],
             redirect_uri,
             code
         )
-        
-        # Save to session
+
+        user_email = getattr(creds, "id_token", {}).get("email", "Unknown")
+
         st.session_state["credentials"] = creds
         st.session_state["service"] = build_calendar_service(creds)
-        st.session_state["user_email"] = "authenticated_user@gmail.com"
-        st.session_state["_oauth_code_processed"] = True  # ← MARK AS PROCESSED
-        
-        st.session_state["credentials"] = creds
-        st.session_state["service"] = build_calendar_service(creds)
-        st.session_state["user_email"] = "authenticated_user@gmail.com"
+        st.session_state["user_email"] = user_email
         st.session_state["_oauth_code_processed"] = True
 
         st.query_params.clear()
         st.rerun()
+
     except Exception as e:
         st.error(f"❌ Login failed: {e}")
-        st.session_state["_oauth_code_processed"] = True  # Mark as processed even on error
+        st.session_state["_oauth_code_processed"] = True
         st.stop()
 
 
@@ -122,9 +106,8 @@ def main():
             if "invalid_grant" in str(e):
                 st.error("❌ Session expired. Please log in again.")
                 # Clear all session state to force re-login
-                for k in ["service", "credentials", "user_email"]:
+                for k in ["service", "credentials", "user_email", "calendars_cache", "target_calendar_id"]:
                     st.session_state.pop(k, None)
-
                 st.session_state["_oauth_code_processed"] = False
                 st.query_params.clear()
                 st.rerun()

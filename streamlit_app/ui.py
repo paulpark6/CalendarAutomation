@@ -349,10 +349,20 @@ def render_app(service):
         if st.button("Log out"):
             from project_code.auth import logout_and_delete_token
             logout_and_delete_token(st.session_state.get("credentials"))
-            for k in list(st.session_state.keys()):
-                del st.session_state[k]
+
+            for k in [
+                "service",
+                "credentials",
+                "user_email",
+                "calendars_cache",
+                "target_calendar_id",
+                "oauth_state",
+            ]:
+                st.session_state.pop(k, None)
+
+            st.session_state["_oauth_code_processed"] = False
+            st.query_params.clear()
             st.rerun()
-    
     st.divider()
     
     # Two steps in columns
