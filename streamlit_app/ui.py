@@ -260,11 +260,6 @@ def show_login_page():
             redirect_uri,
         )
 
-        # debug
-        st.write("Mode:", app_cfg.get("mode"))
-        st.write("Redirect URI:", redirect_uri)
-        st.code(auth_url, language="text")
-
         # save state if your callback validates it later
         st.session_state["oauth_state"] = state
 

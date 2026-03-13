@@ -252,8 +252,8 @@ client_secret = "YOUR_CLIENT_SECRET_HERE"
 
 [app]
 mode = "cloud"
-local_redirect_uri = "http://localhost:8501/"
-cloud_redirect_uri = "https://lazycal.streamlit.app/"
+local_redirect_uri = "http://localhost:8501/oauth2callback"
+cloud_redirect_uri = "https://lazycal.streamlit.app/oauth2callback"
 ```
 
 **Important:** The `mode = "cloud"` tells your app to use the cloud redirect URI in the OAuth flow.
