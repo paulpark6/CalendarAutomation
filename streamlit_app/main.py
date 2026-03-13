@@ -1,21 +1,28 @@
 """
 LazyCal - Calendar Agent Main Entry Point
 
-This is the app's entry point. It handles:
-1. Authentication (OAuth with Google)
-2. Redirecting to login or main app
-3. Session management
+FIXED: Infinite Login Loop Issue
+
+THE PROBLEM:
+- After OAuth callback, st.query_params.clear() doesn't reliably clear the URL
+- Page reruns, but Streamlit might still see the "code" parameter
+- OAuth code block runs again, but credentials might not persist properly
+- Result: Infinite loop back to login page
+
+THE SOLUTION:
+- Use a session state flag (_oauth_code_processed) to track if we've already exchanged this code
+- This prevents re-exchanging the same code on subsequent reruns
+- Much more reliable than trying to clear query params
 """
 
-import time
 import streamlit as st
 import sys
 import os
+from google.auth.transport.requests import Request
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from project_code.auth import web_exchange_code, build_calendar_service, logout_and_delete_token
-from google.auth.transport.requests import Request
 from streamlit_app import ui
 
 
@@ -28,16 +35,21 @@ st.set_page_config(page_title="LazyCal - Calendar Agent", page_icon="📅", layo
 st.session_state.setdefault("service", None)
 st.session_state.setdefault("credentials", None)
 st.session_state.setdefault("user_email", None)
+st.session_state.setdefault("_oauth_code_processed", False)  # ← KEY FIX
 
 
 # ============================================================================
 # OAUTH CALLBACK HANDLER
 # ============================================================================
 
-if "code" in st.query_params:
+if "code" in st.query_params and not st.session_state["_oauth_code_processed"]:
     """
     User was redirected from Google OAuth with authorization code.
     Exchange code for credentials and save to session.
+    
+    The check "and not st.session_state["_oauth_code_processed"]" prevents
+    this block from re-executing on subsequent reruns, which was causing
+    the infinite login loop.
     """
     try:
         code = st.query_params["code"]
@@ -65,13 +77,17 @@ if "code" in st.query_params:
         st.session_state["credentials"] = creds
         st.session_state["service"] = build_calendar_service(creds)
         st.session_state["user_email"] = "authenticated_user@gmail.com"
+        st.session_state["_oauth_code_processed"] = True  # ← MARK AS PROCESSED
         
-        # Clear OAuth params and rerun
-        st.query_params.clear()
+        # Show success message
+        st.success("✅ Successfully logged in!")
+        
+        # Rerun to go to main app (don't need to clear query params)
         st.rerun()
         
     except Exception as e:
         st.error(f"❌ Login failed: {e}")
+        st.session_state["_oauth_code_processed"] = True  # Mark as processed even on error
         st.stop()
 
 
@@ -80,19 +96,21 @@ if "code" in st.query_params:
 # ============================================================================
 
 def main():
+    """Main application logic after authentication."""
+    
     # 1. User not logged in -> Show login page
     if not st.session_state.get("credentials"):
         ui.show_login_page()
         st.stop()
     
-    # 2. User logged in -> Check credentials and refresh if needed
+    # 2. User logged in -> Check credentials
     creds = st.session_state.get("credentials")
     
     if creds is None:
-        st.error("Auth problem: no credentials in session.")
+        st.error("❌ Auth problem: no credentials in session.")
         st.stop()
 
-    # Refresh token if expired
+    # 3. Refresh token if expired
     if getattr(creds, "expired", False) and getattr(creds, "refresh_token", None):
         try:
             creds.refresh(Request())
@@ -100,14 +118,15 @@ def main():
             st.session_state["service"] = build_calendar_service(creds)
         except Exception as e:
             if "invalid_grant" in str(e):
-                st.error("Session expired. Please log in again.")
+                st.error("❌ Session expired. Please log in again.")
+                # Clear all session state to force re-login
                 for k in list(st.session_state.keys()):
                     del st.session_state[k]
                 st.rerun()
-            st.error(f"Token refresh failed: {e}")
+            st.error(f"❌ Token refresh failed: {e}")
             st.stop()
 
-    # 3. User authenticated and token valid -> Show main app
+    # 4. User authenticated and token valid -> Show main app
     service = st.session_state["service"]
     ui.render_app(service)
 
