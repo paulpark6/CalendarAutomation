@@ -99,7 +99,7 @@ def main():
     """Main application logic after authentication."""
     
     # 1. User not logged in -> Show login page
-    if not st.session_state.get("credentials"):
+    if st.session_state.get("credentials") is None:
         ui.show_login_page()
         st.stop()
     
