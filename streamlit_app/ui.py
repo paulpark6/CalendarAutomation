@@ -339,7 +339,7 @@ def step2_event_creation(service):
 
 def render_app(service):
     """Main app layout with Step 1 and Step 2."""
-    st.set_page_config(page_title="LazyCal - Calendar Agent", page_icon="📅", layout="wide")
+    #st.set_page_config(page_title="LazyCal - Calendar Agent", page_icon="📅", layout="wide")
     
     # Header with logout
     col1, col2 = st.columns([0.85, 0.15])
